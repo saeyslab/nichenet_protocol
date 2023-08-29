@@ -1,0 +1,272 @@
+library(nichenetr)
+library(tidyverse)
+library(Matrix)
+library(Seurat)
+devtools::load_all()
+
+ligand_target_matrix <- readRDS("~/Documents/nichenet/multinichenet_files/ligand_target_matrix_nsga2r_final_mouse.rds")
+lr_network <- readRDS("~/Documents/nichenet/multinichenet_files/lr_network_mouse_21122021.rds")
+weighted_networks <- readRDS("~/Documents/nichenet/multinichenet_files/weighted_networks_nsga2r_final_mouse.rds")
+seuratObj <- readRDS("~/Documents/nichenet/nichenet_files/seuratObj.rds")
+
+
+#### Procedure (steps are separated by an empty line) ####
+## Process data ##
+Idents(seuratObj) <- seuratObj$celltype
+
+seuratObj <- alias_to_symbol_seurat(seuratObj, "mouse")
+
+sender_celltypes <- c("CD4 T","Treg", "Mono", "NK", "B", "DC")
+receiver <- "CD8 T"
+
+condition_oi <- "LCMV"
+condition_reference <- "SS"
+
+list_expressed_genes_sender <- lapply(sender_celltypes, function(celltype) {get_expressed_genes(celltype, seuratObj, pct = 0.10)})
+expressed_genes_sender <- unique(unlist(list_expressed_genes_sender))
+expressed_genes_receiver <- get_expressed_genes(receiver, seuratObj,
+                                                pct = 0.10)
+
+background_expressed_genes <- expressed_genes_receiver[expressed_genes_receiver %in% rownames(ligand_target_matrix)]
+
+seurat_obj_receiver <- subset(seuratObj, idents = receiver)
+seurat_obj_receiver <- SetIdent(seurat_obj_receiver,
+                                value = seurat_obj_receiver[["aggregate"]])
+DE_table_receiver <- FindMarkers(object = seurat_obj_receiver,
+                                 ident.1 = condition_oi, ident.2 = condition_reference,
+                                 min.pct = 0.10)
+geneset_oi <- DE_table_receiver[DE_table_receiver$p_val_adj <= 0.05 & abs(DE_table_receiver$avg_log2FC) >= 0.25, ]
+geneset_oi <- rownames(geneset_oi)[rownames(geneset_oi) %in% rownames(ligand_target_matrix)]
+
+all_ligands <- unique(lr_network$from)
+all_receptors <- unique(lr_network$to)
+
+expressed_ligands <- intersect(all_ligands, expressed_genes_sender)
+expressed_receptors <- intersect(all_receptors, expressed_genes_receiver)
+
+potential_ligands <- lr_network[lr_network$from %in% expressed_ligands &
+                                  lr_network$to %in% expressed_receptors, ]
+potential_ligands <- unique(potential_ligands$from)
+
+## Ligand activity analysis and downstream prediction ##
+ligand_activities <- predict_ligand_activities(
+  geneset = geneset_oi,
+  background_expressed_genes = background_expressed_genes, ligand_target_matrix = ligand_target_matrix,
+  potential_ligands = potential_ligands)
+
+ligand_activities <- ligand_activities[order(ligand_activities$aupr_corrected, decreasing = TRUE), ]
+
+best_upstream_ligands <- top_n(ligand_activities, 30, aupr_corrected)$test_ligand
+
+active_ligand_target_links_df <- lapply(best_upstream_ligands, get_weighted_ligand_target_links,
+                                        geneset = geneset_oi,
+                                        ligand_target_matrix = ligand_target_matrix,
+                                        n = 200)
+active_ligand_target_links_df <- drop_na(bind_rows(active_ligand_target_links_df))
+
+ligand_receptor_links_df <- get_weighted_ligand_receptor_links(best_upstream_ligands, expressed_receptors, lr_network, weighted_networks$lr_sig)
+
+## Visualizations ##
+# Ligand-target heatmap
+active_ligand_target_links <- prepare_ligand_target_visualization(ligand_target_df = active_ligand_target_links_df, ligand_target_matrix = ligand_target_matrix)
+
+order_ligands <- rev(intersect(best_upstream_ligands, colnames(active_ligand_target_links)))
+order_targets <- intersect(unique(active_ligand_target_links_df$target), rownames(active_ligand_target_links))
+vis_ligand_target <- t(active_ligand_target_links[order_targets,order_ligands])
+make_heatmap_ggplot(vis_ligand_target,  "Prioritized ligands", "Predicted target genes",
+                    color = "purple", legend_title = "Regulatory potential") +
+                    scale_fill_gradient2(low = "whitesmoke",  high = "purple")
+
+
+# Ligand-receptor heatmap
+vis_ligand_receptor_network <- prepare_ligand_receptor_visualization(ligand_receptor_links_df, best_upstream_ligands, order_hclust = "receptors")
+make_heatmap_ggplot(t(vis_ligand_receptor_network[, order_ligands]),
+                    "Ligands","Receptors", color = "mediumvioletred",
+                    x_axis_position = "top",legend_title = "Prior interaction potential")
+
+# Ligand activity heatmap
+ligand_aupr_matrix <- column_to_rownames(ligand_activities, "test_ligand")
+ligand_aupr_matrix <- ligand_aupr_matrix[rev(best_upstream_ligands), "aupr_corrected", drop=FALSE]
+colnames(ligand_aupr_matrix) <- "AUPR"
+vis_ligand_aupr <- as.matrix(ligand_aupr_matrix, ncol = 1)
+make_heatmap_ggplot(vis_ligand_aupr, "Prioritized ligands","Ligand activity", color = "darkorange",
+                    legend_position = "bottom", x_axis_position = "top")
+
+# LFC heatmap
+celltype_order <- levels(Idents(seuratObj))
+DE_table_top_ligands <- lapply(celltype_order[celltype_order %in% sender_celltypes],
+                       get_lfc_celltype,
+                       seurat_obj = seuratObj,
+                       condition_colname = "aggregate", condition_oi = condition_oi, condition_reference = condition_reference,
+                       min.pct = 0,
+                       features = best_upstream_ligands, celltype_col = "celltype")
+DE_table_top_ligands <- reduce(DE_table_top_ligands, full_join)
+DE_table_top_ligands <- column_to_rownames(DE_table_top_ligands, "gene")
+
+vis_ligand_lfc <- as.matrix(DE_table_top_ligands[rev(best_upstream_ligands), ])
+make_threecolor_heatmap_ggplot(vis_ligand_lfc, "Prioritized ligands","LFC in Sender",
+  low_color = "midnightblue",mid_color = "white", mid = median(vis_ligand_lfc), high_color = "red",
+  x_axis_position = "top", legend_position = "bottom", legend_title = "LFC")
+
+# Dot plot
+DotPlot(subset(seuratObj, celltype %in% sender_celltypes),
+        features = rev(best_upstream_ligands), cols = "RdYlBu") +
+        coord_flip() +
+        scale_y_discrete(position = "right") +
+        theme(legend.position = "bottom")
+
+# Chord diagram (ligand-target)
+ligand_type_indication_df <- assign_ligands_to_celltype(seuratObj, best_upstream_ligands[1:20], "celltype", func.agg = mean, slot = "data")
+
+active_ligand_target_links_df$target_type <- "LCMV-DE"
+circos_links <- get_ligand_target_links_oi(ligand_type_indication_df,
+                                           active_ligand_target_links_df)
+
+ligand_colors <- c("General" = "lawngreen", "NK" = "royalblue", "B" = "darkgreen", "Mono" = "violet", "DC" = "steelblue2")
+target_colors <- c( "LCMV-DE" = "tomato")
+vis_circos_obj <- prepare_circos_visualization(circos_links, ligand_colors = ligand_colors, target_colors = target_colors)
+
+draw_circos_plot(vis_circos_obj, transparency = TRUE)
+
+# Chord diagram (ligand-receptor)
+lr_network_top_df <- rename(ligand_receptor_links_df, ligand=from, target=to)
+lr_network_top_df$target_type = "LCMV_CD8T_receptor"
+lr_network_top_df <- inner_join(lr_network_top_df, ligand_type_indication_df)
+receptor_colors <- c("LCMV_CD8T_receptor" = "darkred")
+vis_circos_receptor_obj <- prepare_circos_visualization(lr_network_top_df, ligand_colors = ligand_colors, target_colors = receptor_colors)
+draw_circos_plot(vis_circos_receptor_obj, transparency = TRUE, link.visible = TRUE)
+
+## Prioritization ##
+lr_network_renamed <- rename(lr_network, ligand=from, receptor=to)
+
+DE_table <- calculate_de(seuratObj, celltype_colname = "celltype",
+                         condition_colname = "aggregate", condition_oi = condition_oi,
+                         features = union(expressed_ligands, expressed_receptors))
+
+expression_info <- get_exprs_avg(seuratObj, "celltype",
+                                 condition_colname = "aggregate", condition_oi = condition_oi)
+
+condition_markers <- FindMarkers(object = seuratObj, ident.1 = condition_oi, ident.2 = condition_reference,
+                                 group.by = "aggregate", min.pct = 0, logfc.threshold = 0,
+                                 features = union(expressed_ligands, expressed_receptors))
+condition_markers <- rownames_to_column(condition_markers, "gene")
+
+processed_DE_table <- process_table_to_ic(DE_table, table_type = "celltype_DE", lr_network_renamed,
+                                          senders_oi = sender_celltypes, receivers_oi = receiver)
+processed_expr_table <- process_table_to_ic(expression_info, table_type = "expression", lr_network_renamed)
+processed_condition_markers <- process_table_to_ic(condition_markers, table_type = "group_DE", lr_network_renamed)
+
+prioritizing_weights = c("de_ligand" = 1,
+                         "de_receptor" = 1,
+                         "activity_scaled" = 2,
+                         "exprs_ligand" = 1,
+                         "exprs_receptor" = 1,
+                         "ligand_condition_specificity" = 0,
+                         "receptor_condition_specificity" = 0)
+
+ligand_activities$rank <- rank(rev(ligand_activities$aupr_corrected))
+prioritized_table <- generate_prioritization_tables(processed_expr_table,
+                                              processed_DE_table,
+                                              ligand_activities,
+                                              processed_condition_markers,
+                                              prioritizing_weights = prioritizing_weights)
+
+make_mushroom_plot(prioritized_table, top_n = 30,
+                   show_all_datapoints = TRUE, true_color_range = TRUE, show_rankings = TRUE)
+
+#### Reproducing Figure 2 ####
+top_n <- 20
+p_ligand_target_network_subset <- make_heatmap_ggplot(vis_ligand_target %>% .[(nrow(.)-top_n+1):nrow(.),1:40],
+                                                      "Prioritized ligands","Predicted target genes", color = "purple",
+                                                      legend_title = "Regulatory potential",
+                                                      legend_position = "bottom") +
+                                  scale_fill_gradient2(low = "whitesmoke",  high = "purple", breaks = c(0, 0.1, 0.2)) +
+  theme(legend.title = element_text(vjust = 0.75),
+        axis.ticks = element_blank())
+
+p_ligand_receptor_network_subset <- make_heatmap_ggplot(t(vis_ligand_receptor_network[, order_ligands]) %>% .[(nrow(.)-top_n+1):nrow(.),],
+                                                        "Ligands", "Receptors", color = "mediumvioletred",
+                                                        legend_title = "Prior interaction potential",
+                                                        legend_position = "bottom") +
+  theme(legend.title = element_text(vjust = 0.75), axis.ticks = element_blank())
+
+p_ligand_lfc_subset <- make_threecolor_heatmap_ggplot(vis_ligand_lfc %>% .[(nrow(.)-top_n+1):nrow(.),], "Prioritized ligands","Sender cell types",
+                                               low_color = "midnightblue",mid_color = "white", mid = median(vis_ligand_lfc), high_color = "red",
+                                               legend_position = "bottom", legend_title = "LFC") +
+  theme(legend.title = element_text(vjust = 0.75),
+        axis.title.y = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text.x.top = element_text(angle=0, hjust=0.5))
+
+p_dotplot_subset <- DotPlot(subset(seuratObj, celltype %in% sender_celltypes),
+                     features = rownames(vis_ligand_lfc %>% .[(nrow(.)-top_n+1):nrow(.),]),
+                     cols = "RdYlBu") +
+  coord_flip() +
+  scale_y_discrete(position = "right") +
+  theme(legend.text = element_text(size = 10),
+        legend.title = element_text(size = 12, vjust = 0.8),
+        legend.position = "bottom",
+        legend.justification = c(0.5, 0),
+        legend.box = "vertical",
+        axis.text.x = element_text(size=9, hjust=0.5),
+        axis.text.y = element_text(size=9),
+        axis.ticks = element_blank(),
+        axis.title = element_blank())
+
+p_ligand_aupr_subset <- make_heatmap_ggplot(vis_ligand_aupr %>% .[(nrow(.)-top_n+1):nrow(.),, drop=FALSE],
+                                            "Prioritized ligands","Ligand activity",
+                                            color = "darkorange", legend_position = "bottom", legend_title = "AUPR") +
+                        scale_x_discrete(expand = expansion(add=c(0,0)), position = "top") +
+                        theme(legend.title = element_text(vjust = 0.75),
+                              legend.text = element_text(size = 9),
+                              axis.text.x.top = element_blank(),
+                              axis.ticks = element_blank())
+
+circos_links_subset <- get_ligand_target_links_oi(ligand_type_indication_df,
+                                           active_ligand_target_links_df,
+                                           cutoff = 0.9)
+vis_circos_obj_subset <- prepare_circos_visualization(circos_links_subset, ligand_colors = ligand_colors, target_colors = target_colors)
+par(bg = "transparent")
+draw_circos_plot(vis_circos_obj_subset, transparency = TRUE, args.circos.text = list(cex = 0.7))
+p_circos <- recordPlot()
+
+p_mushroom_subset <- make_mushroom_plot(prioritized_table, top_n = 10,
+                                        show_all_datapoints = TRUE, true_color_range = TRUE, show_rankings = TRUE,
+                   legend.key.height = unit(0.65, 'cm'),
+                   legend.key.width = unit(0.7, 'cm'),
+                   legend.title = element_text(size=11),
+                   legend.text = element_text(size=10),
+                   axis.title.x = element_text(hjust=0.275),
+                   axis.ticks = element_blank())
+
+# Align left and right column first, before assembling the plots
+left_column <- align_plots(p_ligand_target_network_subset,
+                     p_ligand_aupr_subset, align = 'v', axis = 'l')
+right_column  <- align_plots(p_ligand_receptor_network_subset,
+                      p_dotplot_subset,
+                      align = 'v', axis = 'l')
+first_row <- plot_grid(left_column[[1]],
+                       right_column[[1]],
+                       rel_widths = c(2.75, 2), align = "h", labels = c('A', 'B'))
+second_row <- plot_grid(left_column[[2]],
+                        p_ligand_lfc_subset,
+                        right_column[[2]],
+                        labels = c('C', 'D', 'E'),
+                        ncol = 3, rel_widths = c(0.75, 2, 2), align = "h")
+
+third_row <- cowplot::plot_grid(NULL,
+                                ggdraw(p_circos),
+                                p_mushroom_subset,
+                                labels = c('', 'F', 'G'),
+                                nrow = 1, rel_widths = c(0.3, 1 , 2),
+                                scale = c(1, 1.2, 1))
+
+combined_plot <- cowplot::plot_grid(first_row,
+                   NULL,
+                   second_row,
+                   NULL,
+                   third_row,
+                   nrow = 5,
+                   rel_heights = c(3, 0.02, 3, 0.02, 2.4))
+
+save_plot("~/Pictures/protocols_paper/combined_plot3.pdf", combined_plot, base_width = 16, base_height = 20, dpi = 300)
