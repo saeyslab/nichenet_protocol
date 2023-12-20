@@ -13,14 +13,14 @@ seuratObj <- readRDS("~/Documents/nichenet/nichenet_files/seuratObj.rds")
 #### Procedure (steps are separated by an empty line) ####
 #library(nichenetr)
 library(tidyverse)
-library(Matrix)
 library(Seurat)
-devtools::load_all()
+devtools::load_all("~/nichenetr/")
 
 ## Feature extraction ##
-Idents(seuratObj) <- seuratObj$celltype
-
+seuratObj <- UpdateSeuratObject(seuratObj)
 seuratObj <- alias_to_symbol_seurat(seuratObj, "mouse")
+
+Idents(seuratObj) <- seuratObj$celltype
 
 receiver <- "CD8 T"
 
@@ -41,7 +41,7 @@ condition_oi <- "LCMV"
 condition_reference <- "SS"
 
 seurat_obj_receiver <- subset(seuratObj, idents = receiver)
-seurat_obj_receiver <- SetIdent(seurat_obj_receiver, value = seurat_obj_receiver[["aggregate"]])
+seurat_obj_receiver <- SetIdent(seurat_obj_receiver, value = seurat_obj_receiver[["aggregate", drop = TRUE]])
 DE_table_receiver <- FindMarkers(object = seurat_obj_receiver,
                                  ident.1 = condition_oi, ident.2 = condition_reference,
                                  min.pct = 0.05)
@@ -94,11 +94,12 @@ vis_ligand_receptor_network <- prepare_ligand_receptor_visualization(ligand_rece
                      legend_title = "Prior interaction potential"))
 
 # Ligand activity heatmap
-ligand_aupr_matrix <- column_to_rownames(ligand_activities_focused, "test_ligand")
+ligand_aupr_matrix <- column_to_rownames(ligand_activities, "test_ligand")
 ligand_aupr_matrix <- ligand_aupr_matrix[rev(best_upstream_ligands), "aupr_corrected", drop=FALSE]
-colnames(ligand_aupr_matrix) <- "AUPR"
 vis_ligand_aupr <- as.matrix(ligand_aupr_matrix, ncol = 1)
-(make_heatmap_ggplot(vis_ligand_aupr, "Prioritized ligands", "Ligand activity", color = "darkorange"))
+(make_heatmap_ggplot(vis_ligand_aupr, "Prioritized ligands", "Ligand activity",
+                     legend_title = "AUPR", color = "darkorange") +
+                     theme(axis.text.x.top = element_blank()))
 
 # LFC heatmap
 celltype_order <- levels(Idents(seuratObj))
@@ -107,7 +108,7 @@ DE_table_top_ligands <- lapply(celltype_order[celltype_order %in% sender_celltyp
                                seurat_obj = seuratObj,
                                condition_colname = "aggregate",
                                condition_oi = condition_oi, condition_reference = condition_reference,
-                               min.pct = 0,
+                               min.pct = 0, logfc.threshold = 0,
                                features = best_upstream_ligands, celltype_col = "celltype")
 DE_table_top_ligands <- reduce(DE_table_top_ligands, full_join)
 DE_table_top_ligands <- column_to_rownames(DE_table_top_ligands, "gene")
@@ -124,7 +125,7 @@ DotPlot(subset(seuratObj, celltype %in% sender_celltypes),
   scale_y_discrete(position = "right")
 
 # Line plot to compare rankings between agnostic and focused approach
-make_line_plot(ligand_activities = ligand_activities,
+make_line_plot(ligand_activities = ligand_activities_all,
                potential_ligands = potential_ligands_focused)
 
 # Chord diagram (ligand-target)
@@ -190,10 +191,10 @@ prioritizing_weights = c("de_ligand" = 1,
                          "ligand_condition_specificity" = 0,
                          "receptor_condition_specificity" = 0)
 
-ligand_activities_focused$rank <- rank(rev(ligand_activities_focused$aupr_corrected))
+ligand_activities <- mutate(ligand_activities, rank = rank(desc(aupr_corrected)))
 prioritized_table <- generate_prioritization_tables(processed_expr_table,
                                                     processed_DE_table,
-                                                    ligand_activities_focused,
+                                                    ligand_activities,
                                                     processed_condition_markers,
                                                     prioritizing_weights = prioritizing_weights)
 
@@ -201,57 +202,84 @@ make_mushroom_plot(prioritized_table, top_n = 30,
                    show_all_datapoints = TRUE, true_color_range = TRUE, show_rankings = TRUE)
 
 #### Reproducing Figure 2 ####
-top_n <- 20
-p_ligand_target_network_subset <- make_heatmap_ggplot(vis_ligand_target %>% .[(nrow(.)-top_n+1):nrow(.),1:40],
+top_n <- 10
+legend_title_size <- 9
+legend_text_size <- 7
+legend_key_size <- unit(0.5, "cm")
+
+p_ligand_target_network_subset <-
+  make_heatmap_ggplot(vis_ligand_target %>% .[(nrow(.)-top_n+1):nrow(.),1:(top_n*2)],
                                                       "Prioritized ligands","Predicted target genes", color = "purple",
                                                       legend_title = "Regulatory potential",
                                                       legend_position = "bottom") +
-  scale_fill_gradient2(low = "whitesmoke",  high = "purple", breaks = c(0, 0.1, 0.2)) +
-  theme(legend.title = element_text(vjust = 0.75),
+  scale_fill_gradient(low = "whitesmoke",  high = "purple", n.breaks = 3)  +
+  theme(legend.title = element_text(vjust = 0.75, size = legend_title_size),
+        legend.text = element_text(size = legend_text_size),
+        legend.key.size = legend_key_size,
         axis.ticks = element_blank())
 
-p_ligand_receptor_network_subset <- make_heatmap_ggplot(t(vis_ligand_receptor_network[, order_ligands]) %>% .[(nrow(.)-top_n+1):nrow(.),],
+p_ligand_receptor_network_subset <- make_heatmap_ggplot(t(vis_ligand_receptor_network[, order_ligands]) %>% .[(nrow(.)-top_n+1):nrow(.),] %>% .[, colSums(.) > 0],
                                                         "Ligands", "Receptors", color = "mediumvioletred",
                                                         legend_title = "Prior interaction potential",
                                                         legend_position = "bottom") +
-  theme(legend.title = element_text(vjust = 0.75), axis.ticks = element_blank())
+  theme(legend.title = element_text(vjust = 0.75, size = legend_title_size),
+        legend.text = element_text(size = legend_text_size),
+        legend.key.size = legend_key_size,
+        axis.ticks = element_blank())
+
+p_ligand_aupr_subset <- make_heatmap_ggplot(vis_ligand_aupr %>% .[(nrow(.)-top_n+1):nrow(.),, drop=FALSE],
+                                            "Prioritized ligands","Ligand activity",
+                                            legend_position = "bottom", legend_title = "AUPR") +
+  scale_x_discrete(expand = expansion(add=c(0,0)), position = "top") +
+  scale_fill_gradient(n.breaks = 4, low="whitesmoke", high = "darkorange") +
+  theme(legend.title = element_text(vjust = 0.75, size = legend_title_size),
+        legend.text = element_text(size = legend_text_size),
+        legend.key.size = legend_key_size,
+        legend.justification = c(0.7, 0),
+        axis.title.x.top = element_text(margin=margin(0, 0, -60, 0)),
+        axis.text.x.top = element_blank(),
+        axis.ticks = element_blank())
 
 p_ligand_lfc_subset <- make_threecolor_heatmap_ggplot(vis_ligand_lfc %>% .[(nrow(.)-top_n+1):nrow(.),], "Prioritized ligands","Sender cell types",
                                                       low_color = "midnightblue",mid_color = "white", mid = median(vis_ligand_lfc), high_color = "red",
                                                       legend_position = "bottom", legend_title = "LFC") +
-  theme(legend.title = element_text(vjust = 0.75),
+  theme(legend.title = element_text(vjust = 0.75, size = legend_title_size),
+        legend.text = element_text(size = legend_text_size),
+        legend.key.size = legend_key_size,
         axis.title.y = element_blank(),
         axis.ticks = element_blank(),
-        axis.text.x.top = element_text(angle=0, hjust=0.5))
+        axis.text.x.top = element_text(angle=90))
 
 p_dotplot_subset <- DotPlot(subset(seuratObj, celltype %in% sender_celltypes),
                             features = rownames(vis_ligand_lfc %>% .[(nrow(.)-top_n+1):nrow(.),]),
                             cols = "RdYlBu") +
   coord_flip() +
   scale_y_discrete(position = "right") +
-  theme(legend.text = element_text(size = 10),
-        legend.title = element_text(size = 12, vjust = 0.8),
+  theme(legend.text = element_text(size = legend_text_size),
+        legend.title = element_text(size = legend_title_size, vjust = 0.8),
+        legend.key.size = legend_key_size,
         legend.position = "bottom",
         legend.justification = c(0.5, 0),
         legend.box = "vertical",
-        axis.text.x = element_text(size=9, hjust=0.5),
+        legend.box.margin = margin(10, 0, 0, 0),
+        legend.margin = margin(-0.4,0,0,0, unit="cm"),
+        axis.text.x = element_text(size=9, angle=90, hjust=0),
         axis.text.y = element_text(size=9),
         axis.ticks = element_blank(),
         axis.title = element_blank())
 
-p_ligand_aupr_subset <- make_heatmap_ggplot(vis_ligand_aupr %>% .[(nrow(.)-top_n+1):nrow(.),, drop=FALSE],
-                                            "Prioritized ligands","Ligand activity",
-                                            color = "darkorange", legend_position = "bottom", legend_title = "AUPR") +
-  scale_x_discrete(expand = expansion(add=c(0,0)), position = "top") +
-  theme(legend.title = element_text(vjust = 0.75),
-        legend.text = element_text(size = 9),
-        axis.text.x.top = element_blank(),
-        axis.ticks = element_blank())
+p_lineplot_subset <- make_line_plot(ligand_activities_all, potential_ligands_focused,
+                                    ranking_range = c(1, 10),
+                                    inset_scale = 0.75) +
+  theme(legend.text = element_text(size = legend_text_size),
+        legend.key.size = legend_key_size,
+        plot.title = element_text(hjust = 0, size = legend_title_size, margin=margin(0,0,0,0)))
 
 circos_links_subset <- get_ligand_target_links_oi(ligand_type_indication_df,
                                                   active_ligand_target_links_df,
                                                   cutoff = 0.95)
-vis_circos_obj_subset <- prepare_circos_visualization(circos_links_subset, ligand_colors = ligand_colors, target_colors = target_colors)
+vis_circos_obj_subset <- prepare_circos_visualization(circos_links_subset, ligand_colors = ligand_colors[names(ligand_colors) %in% unique(circos_links_subset$ligand_type)],
+                                                      target_colors = target_colors)
 par(bg = "transparent")
 draw_circos_plot(vis_circos_obj_subset, transparency = TRUE, args.circos.text = list(cex = 0.7))
 p_circos <- recordPlot()
@@ -281,35 +309,50 @@ signaling_ggplot <- magick::image_ggplot(signaling_magick)
 # Mushroom plot
 p_mushroom_subset <- make_mushroom_plot(prioritized_table, top_n = 10,
                                         show_all_datapoints = TRUE, true_color_range = TRUE, show_rankings = TRUE,
-                                        legend.key.height = unit(0.65, 'cm'),
-                                        legend.key.width = unit(0.7, 'cm'),
-                                        legend.title = element_text(size=11),
-                                        legend.text = element_text(size=10),
-                                        axis.title.x = element_text(hjust=0.275),
+                                        legend.key.size = legend_key_size*0.5,
+                                        #legend.justification = c(1, 0.5),
+                                        legend.position = c(1.2, 0.85),
+                                        #legend.key.height = unit(0.4, 'cm'),
+                                        #legend.key.width = unit(0.3, 'cm'),
+                                        #legend.box = "vertical",
+                                        #legend.margin = margin(0,0,0,-10, unit="cm"),
+                                        legend.title = element_text(size=legend_title_size),
+                                        legend.text = element_text(size=legend_text_size),
+                                        axis.text.x = element_text(angle=90, hjust=0),
+                                        axis.title.x = element_text(hjust=0.2),
                                         axis.ticks = element_blank())
 
 # Align left and right column first, before assembling the plots
+
 left_column <- align_plots(p_ligand_target_network_subset,
-                           p_ligand_aupr_subset, align = 'v', axis = 'l')
-right_column  <- align_plots(p_ligand_receptor_network_subset,
-                             p_dotplot_subset,
-                             align = 'v', axis = 'l')
+                           p_ligand_lfc_subset, align = 'v', axis = 'l')
+
 first_row <- plot_grid(left_column[[1]],
-                       right_column[[1]],
-                       rel_widths = c(2.75, 2), align = "h", labels = c('A', 'B'))
-second_row <- plot_grid(left_column[[2]],
-                        p_ligand_lfc_subset,
-                        right_column[[2]],
-                        labels = c('C', 'D', 'E'),
-                        ncol = 3, rel_widths = c(0.75, 2, 2), align = "h")
+                       NULL,
+                       p_ligand_receptor_network_subset,
+                       NULL,
+                       p_ligand_aupr_subset,
+                       NULL,
+                       ncol = 6, rel_widths = c(2.75, 0.5, 2, 0.25, 0.75, 0.25), align = "h", labels = c('A', '',  'B', '', 'C', ''))
+
+second_row_1 <- align_plots(left_column[[2]], p_dotplot_subset, align = "h", axis = "tb")
+second_row <- plot_grid(second_row_1[[1]],
+                        NULL,
+                        second_row_1[[2]],
+                        NULL,
+                        p_lineplot_subset,
+                        labels = c('D','', 'E', '', 'F'),
+                        ncol = 5, rel_widths = c(0.75, 0.2, 0.8, 0.15, 1.5), align = "h", axis = "t")
+
 
 third_row <- cowplot::plot_grid(NULL,
                                 ggdraw(p_circos),
+                                NULL,
                                 signaling_ggplot,
                                 p_mushroom_subset,
-                                labels = c('', 'F', 'G', 'H'),
-                                nrow = 1, rel_widths = c(0.1, 1, 1 , 2),
-                                scale = c(1, 1.2, 0.7, 1))
+                                labels = c('', 'G', '', 'H', 'I'),
+                                nrow = 1, rel_widths = c(0.2, 1.2, 0.2, 1 , 2),
+                                scale = c(1, 1.1, 1, 0.9, 1))
 
 combined_plot <- cowplot::plot_grid(first_row,
                                     NULL,
@@ -317,7 +360,7 @@ combined_plot <- cowplot::plot_grid(first_row,
                                     NULL,
                                     third_row,
                                     nrow = 5,
-                                    rel_heights = c(3, 0.02, 3, 0.02, 2.4))
+                                    rel_heights = c(3, 0.5, 3, 0.5, 2.5))
 
-# save_plot("~/Pictures/protocols_paper/combined_plot4.pdf", combined_plot,
-#           base_width = 16, base_height = 20, dpi = 300)
+save_plot("~/Pictures/protocols_paper/combined_plot.pdf", combined_plot,
+           base_width = 12, base_height = 12, dpi = 300)
