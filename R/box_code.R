@@ -93,7 +93,7 @@ devtools::install_github("saezlab/liana")
 
 liana::show_resources()
 
-liana_db <- liana::decomplexify(liana::select_resource("Consensus")[[1]])
+liana_db <- liana::decomplexify(liana::select_resource("CellPhoneDB")[[1]])
 liana_db <- rename(liana_db, from = source_genesymbol, to = target_genesymbol)
 liana_db$source <- "liana"
 liana_db <- select(liana_db, from, to, source)
