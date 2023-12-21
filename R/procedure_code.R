@@ -280,9 +280,23 @@ circos_links_subset <- get_ligand_target_links_oi(ligand_type_indication_df,
                                                   cutoff = 0.95)
 vis_circos_obj_subset <- prepare_circos_visualization(circos_links_subset, ligand_colors = ligand_colors[names(ligand_colors) %in% unique(circos_links_subset$ligand_type)],
                                                       target_colors = target_colors)
+
 par(bg = "transparent")
+# Create legend
+circos_legend <- ComplexHeatmap::Legend(
+  labels = unique(circos_links_subset$ligand_type),
+  background = ligand_colors[names(ligand_colors) %in% unique(circos_links_subset$ligand_type)],
+  type = "point",
+  grid_height = unit(3, "mm"),
+  grid_width = unit(3, "mm"),
+  labels_gp = gpar(fontsize = 8)
+  )
+
+circos_legend_grob <- grid.grabExpr(draw(circos_legend))
+
 draw_circos_plot(vis_circos_obj_subset, transparency = TRUE, args.circos.text = list(cex = 0.7))
-p_circos <- recordPlot()
+p_circos_no_legend <- recordPlot()
+p_circos <- cowplot::plot_grid(p_circos_no_legend, circos_legend_grob, rel_widths = c(1, 0.1))
 
 # Signaling graph
 active_signaling_network_subset <- get_ligand_signaling_path(ligand_tf_matrix = ligand_tf_matrix, ligands_all = ligands_oi,
