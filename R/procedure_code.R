@@ -140,7 +140,7 @@ ligand_colors <- c("General" = "#377EB8", "NK" = "#4DAF4A", "B" = "#984EA3", "Mo
 target_colors <- c( "LCMV-DE" = "#999999")
 vis_circos_obj <- prepare_circos_visualization(circos_links, ligand_colors = ligand_colors, target_colors = target_colors)
 
-draw_circos_plot(vis_circos_obj, transparency = TRUE)
+make_circos_plot(vis_circos_obj, transparency = TRUE)
 
 # Chord diagram (ligand-receptor)
 lr_network_top_df <- rename(ligand_receptor_links_df, ligand=from, target=to)
@@ -148,7 +148,7 @@ lr_network_top_df$target_type = "LCMV_CD8T_receptor"
 lr_network_top_df <- inner_join(lr_network_top_df, ligand_type_indication_df)
 receptor_colors <- c("LCMV_CD8T_receptor" = "#E41A1C")
 vis_circos_receptor_obj <- prepare_circos_visualization(lr_network_top_df, ligand_colors = ligand_colors, target_colors = receptor_colors)
-draw_circos_plot(vis_circos_receptor_obj, transparency = TRUE, link.visible = TRUE)
+make_circos_plot(vis_circos_receptor_obj, transparency = TRUE, link.visible = TRUE)
 
 # Ligand to target signaling
 ligand_tf_matrix <- readRDS(url("https://zenodo.org/record/7074291/files/ligand_tf_matrix_nsga2r_final_mouse.rds"))
@@ -294,7 +294,7 @@ circos_legend <- ComplexHeatmap::Legend(
 
 circos_legend_grob <- grid.grabExpr(draw(circos_legend))
 
-draw_circos_plot(vis_circos_obj_subset, transparency = TRUE, args.circos.text = list(cex = 0.7))
+make_circos_plot(vis_circos_obj_subset, transparency = TRUE, args.circos.text = list(cex = 0.7))
 p_circos_no_legend <- recordPlot()
 p_circos <- cowplot::plot_grid(p_circos_no_legend, circos_legend_grob, rel_widths = c(1, 0.1))
 

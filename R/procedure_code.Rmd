@@ -428,7 +428,7 @@ vis_circos_obj <- prepare_circos_visualization(circos_links,
 
 ```{r visualizations - XII, fig.width=10}
 
-draw_circos_plot(vis_circos_obj, transparency = FALSE,  args.circos.text = list(cex = 0.5)) 
+make_circos_plot(vis_circos_obj, transparency = FALSE,  args.circos.text = list(cex = 0.5)) 
 
 ```
 
