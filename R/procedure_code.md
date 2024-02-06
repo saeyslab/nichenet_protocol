@@ -560,7 +560,7 @@ vis_ligand_target <- t(active_ligand_target_links[order_targets,order_ligands])
 ## Adding another scale for fill, which will replace the existing scale.
 ```
 
-![](procedure_code_files/figure-html/visualizations - II-1.png)<!-- -->
+![](procedure_code_files/figure-html/visualizations-II-1.png)<!-- -->
 
 19. Create a heatmap for ligand-receptor interactions (Figure 3B).
 
@@ -575,7 +575,7 @@ vis_ligand_receptor_network <- prepare_ligand_receptor_visualization(
                      color = "mediumvioletred", legend_title = "Prior interaction potential")) 
 ```
 
-![](procedure_code_files/figure-html/visualizations - III-1.png)<!-- -->
+![](procedure_code_files/figure-html/visualizations-III-1.png)<!-- -->
 
 20. Create a heatmap of the ligand activity measure (Figure 3C).
 
@@ -591,7 +591,7 @@ vis_ligand_aupr <- as.matrix(ligand_aupr_matrix, ncol = 1)
     theme(axis.text.x.top = element_blank()))  
 ```
 
-![](procedure_code_files/figure-html/visualizations - IV-1.png)<!-- -->
+![](procedure_code_files/figure-html/visualizations-IV-1.png)<!-- -->
 
 21. For each cell type, compute the log-fold change of the top-ranked ligands between treatment conditions.
 
@@ -639,7 +639,7 @@ vis_ligand_lfc <- as.matrix(DE_table_top_ligands[rev(best_upstream_ligands), ])
                                 legend_title = "LFC")) 
 ```
 
-![](procedure_code_files/figure-html/visualizations - VI-1.png)<!-- -->
+![](procedure_code_files/figure-html/visualizations-VI-1.png)<!-- -->
 
 23. Create a dot plot showing the average expression of ligands per cell type, as well as the percentage of cells from the cell type expressing the ligands (Figure 3E).
 
@@ -651,7 +651,7 @@ DotPlot(subset(seuratObj, celltype %in% sender_celltypes),
   scale_y_discrete(position = "right") 
 ```
 
-![](procedure_code_files/figure-html/visualizations - VII-1.png)<!-- -->
+![](procedure_code_files/figure-html/visualizations-VII-1.png)<!-- -->
 
 24. *(Optional)* Create a line plot comparing the rankings between the sender-agnostic and sender-focused approach (Figure 3F).
 
@@ -662,7 +662,7 @@ DotPlot(subset(seuratObj, celltype %in% sender_celltypes),
    theme(plot.title = element_text(size=11, hjust=0.1, margin=margin(0, 0, -5, 0))))
 ```
 
-![](procedure_code_files/figure-html/visualizations - VIII-1.png)<!-- -->
+![](procedure_code_files/figure-html/visualizations-VIII-1.png)<!-- -->
 
 25. To create a ligand-target chord diagram, assign each ligand to a specific cell type. A ligand is only assigned to a cell type if that cell type is the only one to show an average expression of that ligand that is higher than the mean + one standard deviation across all cell types. Otherwise, it is assigned to "General".
 
@@ -731,24 +731,6 @@ head(circos_links)
 ## 6 Il27   Cxcl10  0.178 LCMV-DE     Mono
 ```
 
-
-```r
-ligand_colors <- c("General" = "#377EB8", "NK" = "#4DAF4A", "B" = "#984EA3",
-                   "Mono" = "#FF7F00", "DC" = "#FFFF33", "Treg" = "#F781BF",
-                   "CD8 T"= "#E41A1C") 
-target_colors <- c("LCMV-DE" = "#999999") 
-
-vis_circos_obj <- prepare_circos_visualization(circos_links,
-                                               ligand_colors = ligand_colors,
-                                               target_colors = target_colors) 
-```
-
-```
-## Joining with `by = join_by(ligand_type)`
-## Joining with `by = join_by(target_type)`
-```
-
-
 27. Assign colors to cell types and target gene groups. Then, prepare the data frame for visualization: the function assigns colors to ligands and targets and calculates gaps between sectors of the chord diagram.
 
 
@@ -775,7 +757,7 @@ vis_circos_obj <- prepare_circos_visualization(circos_links,
 make_circos_plot(vis_circos_obj, transparency = FALSE,  args.circos.text = list(cex = 0.5)) 
 ```
 
-![](procedure_code_files/figure-html/visualizations - XII-1.png)<!-- -->
+![](procedure_code_files/figure-html/visualizations-XII-1.png)<!-- -->
 
 29. To create a ligand-receptor chord diagram, perform Steps 26-28 using the weighted ligand-receptor data frame from Step 16. As `prepare_circos_visualization` accesses "target" and "target_type" columns, it is necessary to rename the columns accordingly even though the data frame contains receptor and not target gene information. When drawing the plot, the argument `link.visible` = TRUE is also necessary for making all links visible, since no cutoff is used to filter out ligand-receptor interactions.
 
@@ -808,7 +790,7 @@ make_circos_plot(vis_circos_receptor_obj, transparency = TRUE,
                  link.visible = TRUE,  args.circos.text = list(cex = 0.8)) 
 ```
 
-![](procedure_code_files/figure-html/visualizations - XIII-1.png)<!-- -->
+![](procedure_code_files/figure-html/visualizations-XIII-1.png)<!-- -->
 
 30. To create a signaling graph, first download the ligand-transcription factor matrix. Then, extract the most highly weighted paths from the ligand to the target genes of interest. The number of regulators that are extracted can be adjusted using `top_n_regulators`. By setting `minmax_scaling = TRUE`, we perform min-max scaling to make the weights between the signaling and gene regulatory network more comparable. Additionally, it is possible to check which data sources support the inferred pathway by using the function `infer_supporting_datasources`. This would require separate signaling and gene regulatory networks as input (see Box 3 for code to download these networks).
 
@@ -1192,7 +1174,7 @@ make_mushroom_plot(prioritized_table, top_n = 30,
         axis.title.x = element_text(hjust = 0.25))
 ```
 
-![](procedure_code_files/figure-html/prioritization - X-1.png)<!-- -->
+![](procedure_code_files/figure-html/prioritization-X-1.png)<!-- -->
 
 ## Box 1. Wrapper functions
 
