@@ -41,10 +41,11 @@ condition_oi <- "LCMV"
 condition_reference <- "SS"
 
 seurat_obj_receiver <- subset(seuratObj, idents = receiver)
-seurat_obj_receiver <- SetIdent(seurat_obj_receiver, value = seurat_obj_receiver[["aggregate", drop = TRUE]])
 DE_table_receiver <- FindMarkers(object = seurat_obj_receiver,
                                  ident.1 = condition_oi, ident.2 = condition_reference,
+                                 group.by = "aggregate",
                                  min.pct = 0.05)
+
 geneset_oi <- DE_table_receiver[DE_table_receiver$p_val_adj <= 0.05 & abs(DE_table_receiver$avg_log2FC) >= 0.25, ]
 geneset_oi <- rownames(geneset_oi)[rownames(geneset_oi) %in% rownames(ligand_target_matrix)]
 
@@ -164,39 +165,58 @@ signaling_graph <- diagrammer_format_signaling_graph(signaling_graph_list = acti
 DiagrammeR::render_graph(signaling_graph, layout = "tree")
 
 ## Prioritization ##
-lr_network_renamed <- rename(lr_network, ligand=from, receptor=to)
+lr_network_filtered <- filter(lr_network, from %in% potential_ligands_focused &
+                                to %in% expressed_receptors)[, c("from", "to")]
 
-DE_table <- calculate_de(seuratObj, celltype_colname = "celltype",
-                         condition_colname = "aggregate", condition_oi = condition_oi,
-                         features = union(potential_ligands_focused, expressed_receptors))
+# A. Wrapper function
+info_tables <- generate_info_tables(
+  seuratObj,
+  celltype_colname = "celltype",
+  senders_oi = sender_celltypes,
+  receivers_oi = receiver,
+  lr_network = lr_network_filtered,
+  condition_colname = "aggregate",
+  condition_oi = condition_oi,
+  condition_reference = condition_reference,
+  scenario = "case_control")
+
+processed_DE_table <- info_tables$sender_receiver_de
+processed_expr_table <- info_tables$sender_receiver_info
+processed_condition_markers <- info_tables$lr_condition_de
+
+# B. Step-by-step
+DE_table <- FindAllMarkers(subset(seuratObj, subset = aggregate == "LCMV"),
+                           min.pct = 0, logfc.threshold = 0, return.thresh = 1,
+                           features = unique(unlist(lr_network_filtered)))
 
 expression_info <- get_exprs_avg(seuratObj, "celltype",
-                                 condition_colname = "aggregate", condition_oi = condition_oi)
+                                 condition_colname = "aggregate", condition_oi = condition_oi,
+                                 features = unique(unlist(lr_network_filtered)))
 
 condition_markers <- FindMarkers(object = seuratObj, ident.1 = condition_oi, ident.2 = condition_reference,
                                  group.by = "aggregate", min.pct = 0, logfc.threshold = 0,
-                                 features = union(potential_ligands_focused, expressed_receptors))
+                                 features = unique(unlist(lr_network_filtered)))
 condition_markers <- rownames_to_column(condition_markers, "gene")
 
-processed_DE_table <- process_table_to_ic(DE_table, table_type = "celltype_DE", lr_network_renamed,
+processed_DE_table <- process_table_to_ic(DE_table, table_type = "celltype_DE", lr_network_filtered,
                                           senders_oi = sender_celltypes, receivers_oi = receiver)
-processed_expr_table <- process_table_to_ic(expression_info, table_type = "expression", lr_network_renamed)
-processed_condition_markers <- process_table_to_ic(condition_markers, table_type = "group_DE", lr_network_renamed)
+processed_expr_table <- process_table_to_ic(expression_info, table_type = "expression", lr_network_filtered)
+processed_condition_markers <- process_table_to_ic(condition_markers, table_type = "group_DE", lr_network_filtered)
 
+# Optional custom weights
 prioritizing_weights = c("de_ligand" = 1,
                          "de_receptor" = 1,
-                         "activity_scaled" = 2,
+                         "activity_scaled" = 1,
                          "exprs_ligand" = 1,
                          "exprs_receptor" = 1,
-                         "ligand_condition_specificity" = 0,
-                         "receptor_condition_specificity" = 0)
+                         "ligand_condition_specificity" = 1,
+                         "receptor_condition_specificity" = 1)
 
-ligand_activities <- mutate(ligand_activities, rank = rank(desc(aupr_corrected)))
 prioritized_table <- generate_prioritization_tables(processed_expr_table,
                                                     processed_DE_table,
                                                     ligand_activities,
                                                     processed_condition_markers,
-                                                    prioritizing_weights = prioritizing_weights)
+                                                    scenario = "case_control")
 
 make_mushroom_plot(prioritized_table, top_n = 30,
                    show_all_datapoints = TRUE, true_color_range = TRUE, show_rankings = TRUE)
