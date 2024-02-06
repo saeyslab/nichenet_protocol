@@ -10,13 +10,6 @@ nichenet_output <- nichenet_seuratobj_aggregate(
   weighted_networks = weighted_networks)
 
 #### BOX 2 ####
-# Method 1
-permutations <- bootstrap_ligand_activity_analysis(expressed_genes_receiver,
-                                                   geneset_oi, background_expressed_genes, ligand_target_matrix,
-                                                   potential_ligands, n_iter = 10)
-p_values <- calculate_p_value_bootstrap(permutations, ligand_activities)
-
-# Method 2
 # Define cross-validation folds and number of iterations
 k <- 3; n <- 10
 
