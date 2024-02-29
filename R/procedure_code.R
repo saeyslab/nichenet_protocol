@@ -11,10 +11,10 @@ seuratObj <- readRDS("~/Documents/nichenet/nichenet_files/seuratObj.rds")
 # weighted_networks <- readRDS(url(paste0(zenodo_path, "weighted_networks_nsga2r_final_mouse.rds")))
 
 #### Procedure (steps are separated by an empty line) ####
-#library(nichenetr)
+library(nichenetr)
 library(tidyverse)
 library(Seurat)
-devtools::load_all("~/nichenetr/")
+#devtools::load_all("~/nichenetr/")
 
 ## Feature extraction ##
 seuratObj <- UpdateSeuratObject(seuratObj)
@@ -301,6 +301,7 @@ circos_links_subset <- get_ligand_target_links_oi(ligand_type_indication_df,
 vis_circos_obj_subset <- prepare_circos_visualization(circos_links_subset, ligand_colors = ligand_colors[names(ligand_colors) %in% unique(circos_links_subset$ligand_type)],
                                                       target_colors = target_colors)
 
+library(grid)
 par(bg = "transparent")
 # Create legend
 circos_legend <- ComplexHeatmap::Legend(
@@ -312,7 +313,7 @@ circos_legend <- ComplexHeatmap::Legend(
   labels_gp = gpar(fontsize = 8)
   )
 
-circos_legend_grob <- grid.grabExpr(draw(circos_legend))
+circos_legend_grob <- grid.grabExpr(ComplexHeatmap::draw(circos_legend))
 
 make_circos_plot(vis_circos_obj_subset, transparency = TRUE, args.circos.text = list(cex = 0.7))
 p_circos_no_legend <- recordPlot()
@@ -345,7 +346,7 @@ p_mushroom_subset <- make_mushroom_plot(prioritized_table, top_n = 10,
                                         show_all_datapoints = TRUE, true_color_range = TRUE, show_rankings = TRUE,
                                         legend.key.size = legend_key_size*0.5,
                                         #legend.justification = c(1, 0.5),
-                                        legend.position = c(1.2, 0.85),
+                                        legend.position = c(1.1, 0.85),
                                         #legend.key.height = unit(0.4, 'cm'),
                                         #legend.key.width = unit(0.3, 'cm'),
                                         #legend.box = "vertical",
@@ -357,7 +358,7 @@ p_mushroom_subset <- make_mushroom_plot(prioritized_table, top_n = 10,
                                         axis.ticks = element_blank())
 
 # Align left and right column first, before assembling the plots
-
+library(cowplot)
 left_column <- align_plots(p_ligand_target_network_subset,
                            p_ligand_lfc_subset, align = 'v', axis = 'l')
 
@@ -367,7 +368,7 @@ first_row <- plot_grid(left_column[[1]],
                        NULL,
                        p_ligand_aupr_subset,
                        NULL,
-                       ncol = 6, rel_widths = c(2.75, 0.5, 2, 0.25, 0.75, 0.25), align = "h", labels = c('A', '',  'B', '', 'C', ''))
+                       ncol = 6, rel_widths = c(2.75, 0.5, 2, 0.25, 0.75, 0.25), align = "h", labels = c('a', '',  'b', '', 'c', ''))
 
 second_row_1 <- align_plots(left_column[[2]], p_dotplot_subset, align = "h", axis = "tb")
 second_row <- plot_grid(second_row_1[[1]],
@@ -375,7 +376,7 @@ second_row <- plot_grid(second_row_1[[1]],
                         second_row_1[[2]],
                         NULL,
                         p_lineplot_subset,
-                        labels = c('D','', 'E', '', 'F'),
+                        labels = c('d','', 'e', '', 'f'),
                         ncol = 5, rel_widths = c(0.75, 0.2, 0.8, 0.15, 1.5), align = "h", axis = "t")
 
 
@@ -384,7 +385,7 @@ third_row <- cowplot::plot_grid(NULL,
                                 NULL,
                                 signaling_ggplot,
                                 p_mushroom_subset,
-                                labels = c('', 'G', '', 'H', 'I'),
+                                labels = c('', 'g', '', 'h', 'i'),
                                 nrow = 1, rel_widths = c(0.2, 1.2, 0.2, 1 , 2),
                                 scale = c(1, 1.1, 1, 0.9, 1))
 
