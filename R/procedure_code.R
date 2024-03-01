@@ -1,20 +1,14 @@
-ligand_target_matrix <- readRDS("~/Documents/nichenet/nichenet_v2/ligand_target_matrix_nsga2r_final_mouse.rds")
-lr_network <- readRDS("~/Documents/nichenet/nichenet_v2/lr_network_mouse_21122021.rds")
-weighted_networks <- readRDS("~/Documents/nichenet/nichenet_v2/weighted_networks_nsga2r_final_mouse.rds")
-seuratObj <- readRDS("~/Documents/nichenet/nichenet_files/seuratObj.rds")
+seuratObj <- readRDS(url("https://zenodo.org/record/3531889/files/seuratObj.rds"))
 
-# seuratObj <- readRDS(url("https://zenodo.org/record/3531889/files/seuratObj.rds"))
-#
-# zenodo_path <- "https://zenodo.org/record/7074291/files/"
-# ligand_target_matrix <- readRDS(url(paste0(zenodo_path, "ligand_target_matrix_nsga2r_final_mouse.rds")))
-# lr_network <- readRDS(url(paste0(zenodo_path, "lr_network_mouse_21122021.rds")))
-# weighted_networks <- readRDS(url(paste0(zenodo_path, "weighted_networks_nsga2r_final_mouse.rds")))
+zenodo_path <- "https://zenodo.org/record/7074291/files/"
+ligand_target_matrix <- readRDS(url(paste0(zenodo_path, "ligand_target_matrix_nsga2r_final_mouse.rds")))
+lr_network <- readRDS(url(paste0(zenodo_path, "lr_network_mouse_21122021.rds")))
+weighted_networks <- readRDS(url(paste0(zenodo_path, "weighted_networks_nsga2r_final_mouse.rds")))
 
 #### Procedure (steps are separated by an empty line) ####
 library(nichenetr)
 library(tidyverse)
 library(Seurat)
-#devtools::load_all("~/nichenetr/")
 
 ## Feature extraction ##
 seuratObj <- UpdateSeuratObject(seuratObj)
@@ -221,7 +215,7 @@ prioritized_table <- generate_prioritization_tables(processed_expr_table,
 make_mushroom_plot(prioritized_table, top_n = 30,
                    show_all_datapoints = TRUE, true_color_range = TRUE, show_rankings = TRUE)
 
-#### Reproducing Figure 2 ####
+#### Reproducing Figure 3 ####
 top_n <- 10
 legend_title_size <- 9
 legend_text_size <- 7
