@@ -202,7 +202,31 @@ steps_df <- microbenchmark(step1(seuratObj),
 # microbenchmark(step4(lr_network, seuratObj, condition_oi, expressed_ligands, expressed_receptors, sender_celltypes, receiver), times = 10, unit = "s")
 
 # Box 1
-box1_df <- microbenchmark(nichenet_seuratobj_aggregate(
+lr_network <- readRDS("~/Documents/nichenet/multinichenet_files/lr_network_mouse_21122021.rds")
+sig_network <- readRDS("~/Documents/nichenet/multinichenet_files/signaling_network_human_21122021.rds")
+gr_network <- readRDS("~/Documents/nichenet/multinichenet_files/gr_network_human_21122021.rds")
+
+box1 <- function(lr_network, sig_network, gr_network, n_ligands = 10){
+  # aggregate the individual data sources in a weighted manner to obtain a weighted integrated signaling network
+  weighted_networks = construct_weighted_networks(lr_network = lr_network, sig_network = sig_network, gr_network = gr_network, source_weights_df = source_weights_df)
+
+
+  # downweigh the importance of signaling and gene regulatory hubs - use the optimized parameters of this
+  weighted_networks = apply_hub_corrections(weighted_networks = weighted_networks,
+                                            lr_sig_hub = hyperparameter_list[hyperparameter_list$parameter == "lr_sig_hub",]$avg_weight,
+                                            gr_hub = hyperparameter_list[hyperparameter_list$parameter == "gr_hub",]$avg_weight)
+
+  ligands <- as.list(unique(lr_network$from)[1:n_ligands])
+  ligand_target_matrix = construct_ligand_target_matrix(weighted_networks = weighted_networks, ligands = ligands, algorithm = "PPR",
+                                                        damping_factor = hyperparameter_list[hyperparameter_list$parameter == "damping_factor",]$avg_weight,
+                                                        ltf_cutoff = hyperparameter_list[hyperparameter_list$parameter == "ltf_cutoff",]$avg_weight)
+}
+
+box1_df <- microbenchmark(box1(lr_network, sig_network, gr_network, n_ligands = 1287), times = 10, unit = "s")
+
+
+# Box 2
+box2_df <- microbenchmark(nichenet_seuratobj_aggregate(
   seurat_obj = seuratObj,
   receiver = "CD8 T",
   condition_colname = "aggregate", condition_oi = "LCMV", condition_reference = "SS",
@@ -211,8 +235,8 @@ box1_df <- microbenchmark(nichenet_seuratobj_aggregate(
   lr_network = lr_network,
   weighted_networks = weighted_networks), times = 10, unit = "s")
 
-# Box 2
-box2 <- function(geneset_oi, background_expressed_genes, best_upstream_ligands, ligand_target_matrix, k=3, n=10){
+# Box 3
+box3 <- function(geneset_oi, background_expressed_genes, best_upstream_ligands, ligand_target_matrix, k=3, n=10){
   # k = cross-validation folds, n = number of iterations
 
   # Build random forest model and obtain prediction values
@@ -245,31 +269,8 @@ box2 <- function(geneset_oi, background_expressed_genes, best_upstream_ligands, 
                                 by = c("gene","true_target"))
 }
 
-box2_df <- microbenchmark(box2.1(geneset_oi, background_expressed_genes, best_upstream_ligands, ligand_target_matrix), times = 10, unit = "s")
-box2_df <- microbenchmark(box2.1(geneset_oi, background_expressed_genes, best_upstream_ligands, ligand_target_matrix, k=3, n=100), times = 10, unit = "s")
-
-# Box 3
-lr_network <- readRDS("~/Documents/nichenet/multinichenet_files/lr_network_mouse_21122021.rds")
-sig_network <- readRDS("~/Documents/nichenet/multinichenet_files/signaling_network_human_21122021.rds")
-gr_network <- readRDS("~/Documents/nichenet/multinichenet_files/gr_network_human_21122021.rds")
-
-box3 <- function(lr_network, sig_network, gr_network, n_ligands = 10){
-  # aggregate the individual data sources in a weighted manner to obtain a weighted integrated signaling network
-  weighted_networks = construct_weighted_networks(lr_network = lr_network, sig_network = sig_network, gr_network = gr_network, source_weights_df = source_weights_df)
-
-
-  # downweigh the importance of signaling and gene regulatory hubs - use the optimized parameters of this
-  weighted_networks = apply_hub_corrections(weighted_networks = weighted_networks,
-                                            lr_sig_hub = hyperparameter_list[hyperparameter_list$parameter == "lr_sig_hub",]$avg_weight,
-                                            gr_hub = hyperparameter_list[hyperparameter_list$parameter == "gr_hub",]$avg_weight)
-
-  ligands <- as.list(unique(lr_network$from)[1:n_ligands])
-  ligand_target_matrix = construct_ligand_target_matrix(weighted_networks = weighted_networks, ligands = ligands, algorithm = "PPR",
-                                                        damping_factor = hyperparameter_list[hyperparameter_list$parameter == "damping_factor",]$avg_weight,
-                                                        ltf_cutoff = hyperparameter_list[hyperparameter_list$parameter == "ltf_cutoff",]$avg_weight)
-}
-
-box3_df <- microbenchmark(box2(lr_network, sig_network, gr_network, n_ligands = 1287), times = 10, unit = "s")
+box3_df <- microbenchmark(box3(geneset_oi, background_expressed_genes, best_upstream_ligands, ligand_target_matrix), times = 10, unit = "s")
+box3_df <- microbenchmark(box3(geneset_oi, background_expressed_genes, best_upstream_ligands, ligand_target_matrix, k=3, n=100), times = 10, unit = "s")
 
 timing_df <- rbind(steps_df, box1_df, box2_df, box3_df)
 saveRDS(timing_df, "timings_df.rds")

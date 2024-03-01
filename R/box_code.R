@@ -1,48 +1,4 @@
 #### BOX 1 ####
-nichenet_output <- nichenet_seuratobj_aggregate(
-  seurat_obj = seuratObj,
-  receiver = "CD8 T",
-  sender = c("CD4 T","Treg", "Mono", "NK", "B", "DC"),
-  condition_colname = "aggregate",
-  condition_oi = "LCMV", condition_reference = "SS",
-  ligand_target_matrix = ligand_target_matrix,
-  lr_network = lr_network,
-  weighted_networks = weighted_networks)
-
-#### BOX 2 ####
-# Define cross-validation folds and number of iterations
-k <- 3; n <- 10
-
-# Build random forest model and obtain prediction values
-predictions_list <- lapply(1:n, assess_rf_class_probabilities,
-                           folds = k, geneset = geneset_oi,
-                           background_expressed_genes = background_expressed_genes,
-                           ligands_oi = best_upstream_ligands,
-                           ligand_target_matrix = ligand_target_matrix)
-
-# Get classification metrics of the models, then calculate mean across all rounds
-performances_cv <- bind_rows(lapply(predictions_list,
-                                    classification_evaluation_continuous_pred_wrapper))
-colMeans(performances_cv)
-
-# Calculate fraction of target genes and non-target genes that are among the top 5% predicted targets
-fraction_cv <- bind_rows(lapply(predictions_list,
-                                calculate_fraction_top_predicted, quantile_cutoff = 0.95), .id = "round")
-
-# In this case, ~30% of target genes are in the top targets compared to ~1% of the non-target genes
-mean(filter(fraction_cv, true_target)$fraction_positive_predicted)
-mean(filter(fraction_cv, !true_target)$fraction_positive_predicted)
-
-# Perform Fischer's exact test
-lapply(predictions_list, calculate_fraction_top_predicted_fisher,
-       quantile_cutoff = 0.95)
-
-# Get which genes had the highest prediction values
-top_predicted_genes <- lapply(1:n, get_top_predicted_genes, predictions_list)
-top_predicted_genes <- reduce(top_predicted_genes, full_join,
-                              by = c("gene","true_target"))
-
-#### BOX 3 ####
 # Download each part of the network
 zenodo_path <- "https://zenodo.org/record/7074291/files/"
 lr_network <- readRDS(url(paste0(zenodo_path, "lr_network_human_21122021.rds")))
@@ -101,3 +57,47 @@ weighted_networks <- construct_weighted_networks(
   sig_network = sig_network,
   gr_network = gr_network,
   source_weights_df = source_weights)
+
+#### BOX 2 ####
+nichenet_output <- nichenet_seuratobj_aggregate(
+  seurat_obj = seuratObj,
+  receiver = "CD8 T",
+  sender = c("CD4 T","Treg", "Mono", "NK", "B", "DC"),
+  condition_colname = "aggregate",
+  condition_oi = "LCMV", condition_reference = "SS",
+  ligand_target_matrix = ligand_target_matrix,
+  lr_network = lr_network,
+  weighted_networks = weighted_networks)
+
+#### BOX 3 ####
+# Define cross-validation folds and number of iterations
+k <- 3; n <- 10
+
+# Build random forest model and obtain prediction values
+predictions_list <- lapply(1:n, assess_rf_class_probabilities,
+                           folds = k, geneset = geneset_oi,
+                           background_expressed_genes = background_expressed_genes,
+                           ligands_oi = best_upstream_ligands,
+                           ligand_target_matrix = ligand_target_matrix)
+
+# Get classification metrics of the models, then calculate mean across all rounds
+performances_cv <- bind_rows(lapply(predictions_list,
+                                    classification_evaluation_continuous_pred_wrapper))
+colMeans(performances_cv)
+
+# Calculate fraction of target genes and non-target genes that are among the top 5% predicted targets
+fraction_cv <- bind_rows(lapply(predictions_list,
+                                calculate_fraction_top_predicted, quantile_cutoff = 0.95), .id = "round")
+
+# In this case, ~30% of target genes are in the top targets compared to ~1% of the non-target genes
+mean(filter(fraction_cv, true_target)$fraction_positive_predicted)
+mean(filter(fraction_cv, !true_target)$fraction_positive_predicted)
+
+# Perform Fischer's exact test
+lapply(predictions_list, calculate_fraction_top_predicted_fisher,
+       quantile_cutoff = 0.95)
+
+# Get which genes had the highest prediction values
+top_predicted_genes <- lapply(1:n, get_top_predicted_genes, predictions_list)
+top_predicted_genes <- reduce(top_predicted_genes, full_join,
+                              by = c("gene","true_target"))
