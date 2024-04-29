@@ -41,3 +41,9 @@ For the most up-to-date changes on NicheNet, please refer to our main GitHub rep
 * `procedure_code.*`: code from the _Procedure_ section provided in various file formats. The .html and .md files facilitate viewing on the web, while the .Rmd and .R files allow for easier modification. The code to reproduce Figure 3 is provided at the end of `procedure_code.R`.
 * `box_code.R`: code from Boxes 1-3
 * `timing.R`: code used to time the functions
+
+## References
+
+Sang-aram, C., Browaeys, R., Seurinck, R., & Saeys, Y. (2024). Unraveling cell-cell communication with NicheNet by inferring active ligands from transcriptomics data. _arXiv preprint arXiv:2404.16358_. https://arxiv.org/abs/2404.16358.
+
+Browaeys, R., Saelens, W., & Saeys, Y. (2020). NicheNet: modeling intercellular communication by linking ligands to target genes. _Nature methods_, 17(2), 159-162. https://doi.org/10.1038/s41592-019-0667-5.
