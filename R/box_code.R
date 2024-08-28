@@ -101,3 +101,53 @@ lapply(predictions_list, calculate_fraction_top_predicted_fisher,
 top_predicted_genes <- lapply(1:n, get_top_predicted_genes, predictions_list)
 top_predicted_genes <- reduce(top_predicted_genes, full_join,
                               by = c("gene","true_target"))
+
+
+#### BOX 4 ####
+receiver_celltypes <- c("CD4 T", "CD8 T", "Treg")
+
+# Run NicheNet for each receiver cell type
+nichenet_outputs <- lapply(receiver_celltypes, function(receiver_ct){ 
+  output <- nichenet_seuratobj_aggregate(receiver = receiver_ct,
+                                         seurat_obj = seuratObj,
+                                         condition_colname = "aggregate",
+                                         condition_oi = condition_oi,
+                                         condition_reference = condition_reference,
+                                         sender = sender_celltypes,
+                                         ligand_target_matrix = ligand_target_matrix,
+                                         lr_network = lr_network,
+                                         weighted_networks = weighted_networks,
+                                         expression_pct = 0.05) 
+  # Add receiver cell type in ligand activity table
+  output$ligand_activities$receiver <- receiver_ct 
+  return(output) 
+}) 
+
+# Calculate prioritization criteria for each receiver cell type
+info_tables <- lapply(nichenet_outputs, function(output) {
+  lr_network_filtered <-  filter(lr_network[, c("from", "to")],
+                                 from %in% output$ligand_activities$test_ligand & 
+                                 to %in% output$background_expressed_genes) 
+  
+  generate_info_tables(seuratObj, 
+                       celltype_colname = "celltype", 
+                       senders_oi = sender_celltypes, 
+                       receivers_oi = unique(output$ligand_activities$receiver), 
+                       lr_network_filtered = lr_network_filtered, 
+                       condition_colname = "aggregate", 
+                       condition_oi = condition_oi, 
+                       condition_reference = condition_reference, 
+                       scenario = "case_control") 
+})
+
+# Combine the tables
+info_tables_combined <- purrr::pmap(info_tables, bind_rows)
+ligand_activities_combined <- purrr::map_dfr(nichenet_outputs, "ligand_activities")
+
+# Calculate the prioritization table based on the combined tables
+prior_table_combined <- generate_prioritization_tables(
+  sender_receiver_info = distinct(info_tables_combined$sender_receiver_info), 
+  sender_receiver_de = info_tables_combined$sender_receiver_de,
+  ligand_activities = ligand_activities_combined, 
+  lr_condition_de = distinct(info_tables_combined$lr_condition_de),
+  scenario = "case_control") 
