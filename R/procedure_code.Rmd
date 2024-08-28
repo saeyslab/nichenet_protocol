@@ -121,10 +121,40 @@ library(tidyverse)
 2. *(Optional)* For older Seurat objects, update it to be compatible with the currently installed Seurat version. For expression data with older gene symbols, convert them to more recent gene symbols. 
 
 ```{r feature extraction - II, message=FALSE, warning=FALSE}
-seuratObj <- UpdateSeuratObject((seuratObj))
+seuratObj <- UpdateSeuratObject(seuratObj)
 seuratObj <- alias_to_symbol_seurat(seuratObj, "mouse")
 
 seuratObj
+```
+
+For Seurat v5 objects, a new Seurat object will have to be created after extracting the count matrix and metadata.
+```{r}
+if (as.numeric(substr(packageVersion("Seurat"), 1, 1)) >= 5 & 
+    as.numeric(substr(seuratObj@version, 1, 1)) >= 5){
+  count_matrix <- GetAssayData(seuratObj, assay = "RNA", layer = "count")
+  data_matrix <- GetAssayData(seuratObj, assay = "RNA", layer = "data")
+
+  print(paste("All genes from raw count and normalized data are the same:", all(rownames(count_matrix) == rownames(data_matrix))))
+  
+  # Convert gene names
+  new_names <- convert_alias_to_symbols(rownames(count_matrix), "mouse", verbose=FALSE)
+  
+  # Check for duplicated gene names
+  doubles <- names(which(table(new_names) > 1))
+  # Set the duplicated names back to their old names
+  genes_remove <- names(which(names(new_names[new_names %in% doubles]) != (new_names[new_names %in% doubles])))
+  new_names[genes_remove] <- genes_remove
+  
+  # Change rownames
+  rownames(count_matrix) <- new_names
+  rownames(data_matrix) <- new_names
+  
+  seuratObj <- CreateSeuratObject(count_matrix,
+                                  meta.data = seuratObj@meta.data)
+  seuratObj[["RNA"]]$data <- data_matrix
+  
+  rm(doubles, genes_remove, new_names)
+}
 ```
 
 3. Set the cell type annotation column as the identity of the Seurat object.
@@ -253,7 +283,7 @@ ligand_activities <- predict_ligand_activities(
   ligand_target_matrix = ligand_target_matrix,
   potential_ligands = potential_ligands) 
 
-ligand_activities <- ligand_activities[order(ligand_activities$aupr_corrected, 	decreasing = TRUE), ] 
+ligand_activities <- ligand_activities[order(ligand_activities$aupr_corrected, decreasing = TRUE), ] 
 
 # Preview
 dim(ligand_activities)
@@ -401,7 +431,7 @@ DE_table_top_ligands <- column_to_rownames(DE_table_top_ligands, "gene")
 
 ```{r visualizations-VI}
 
-vis_ligand_lfc <- as.matrix(DE_table_top_ligands[rev(best_upstream_ligands), ]) 
+vis_ligand_lfc <- as.matrix(DE_table_top_ligands[rev(best_upstream_ligands), , drop=FALSE]) 
 
 (make_threecolor_heatmap_ggplot(vis_ligand_lfc,
                                 "Prioritized ligands", "LFC in Sender",
@@ -684,11 +714,11 @@ prioritizing_weights <- c("de_ligand" = 1,
 35. Create a mushroom plot depicting ligand expression on one semicircle, and receptor expression on the other (Figure 3i).
 
 ```{r prioritization-X, fig.height=7, fig.width=8}
-
+prioritized_table$sender <- factor(prioritized_table$sender, levels = celltype_order)
 legend_adjust <- c(0.8, 0.7)
-make_mushroom_plot(prioritized_table, top_n = 30,
+make_mushroom_plot(prioritized_table,
+                   top_n = 30,
                    show_all_datapoints = TRUE,
-                   true_color_range = TRUE,
                    show_rankings = TRUE,
                    legend.title = element_text(size=8),
                    legend.text = element_text(size=8),

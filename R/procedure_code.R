@@ -14,6 +14,34 @@ library(Seurat)
 seuratObj <- UpdateSeuratObject(seuratObj)
 seuratObj <- alias_to_symbol_seurat(seuratObj, "mouse")
 
+# For v5 objects
+if (as.numeric(substr(packageVersion("Seurat"), 1, 1)) >= 5 &
+    as.numeric(substr(seuratObj@version, 1, 1)) >= 5){
+  count_matrix <- GetAssayData(seuratObj, assay = "RNA", layer = "count")
+  data_matrix <- GetAssayData(seuratObj, assay = "RNA", layer = "data")
+  
+  print(paste("All genes from raw count and normalized data are the same:", all(rownames(count_matrix) == rownames(data_matrix))))
+  
+  # Convert gene names
+  new_names <- convert_alias_to_symbols(rownames(count_matrix), "mouse", verbose=FALSE)
+  
+  # Check for duplicated gene names
+  doubles <- names(which(table(new_names) > 1))
+  # Set the duplicated names back to their old names
+  genes_remove <- names(which(names(new_names[new_names %in% doubles]) != (new_names[new_names %in% doubles])))
+  new_names[genes_remove] <- genes_remove
+  
+  # Change rownames
+  rownames(count_matrix) <- new_names
+  rownames(data_matrix) <- new_names
+  
+  seuratObj <- CreateSeuratObject(count_matrix,
+                                  meta.data = seuratObj@meta.data)
+  seuratObj[["RNA"]]$data <- data_matrix
+  
+  rm(doubles, genes_remove, new_names)
+}
+
 Idents(seuratObj) <- seuratObj$celltype
 
 receiver <- "CD8 T"
@@ -94,7 +122,7 @@ ligand_aupr_matrix <- ligand_aupr_matrix[rev(best_upstream_ligands), "aupr_corre
 vis_ligand_aupr <- as.matrix(ligand_aupr_matrix, ncol = 1)
 (make_heatmap_ggplot(vis_ligand_aupr, "Prioritized ligands", "Ligand activity",
                      legend_title = "AUPR", color = "darkorange") +
-                     theme(axis.text.x.top = element_blank()))
+    theme(axis.text.x.top = element_blank()))
 
 # LFC heatmap
 celltype_order <- levels(Idents(seuratObj))
@@ -108,7 +136,7 @@ DE_table_top_ligands <- lapply(celltype_order[celltype_order %in% sender_celltyp
 DE_table_top_ligands <- reduce(DE_table_top_ligands, full_join)
 DE_table_top_ligands <- column_to_rownames(DE_table_top_ligands, "gene")
 
-vis_ligand_lfc <- as.matrix(DE_table_top_ligands[rev(best_upstream_ligands), ])
+vis_ligand_lfc <- as.matrix(DE_table_top_ligands[rev(best_upstream_ligands), , drop=FALSE])
 (make_threecolor_heatmap_ggplot(vis_ligand_lfc, "Prioritized ligands","LFC in Sender",
                                 low_color = "midnightblue",mid_color = "white", mid = median(vis_ligand_lfc), high_color = "red",
                                 legend_title = "LFC"))
@@ -212,8 +240,9 @@ prioritized_table <- generate_prioritization_tables(processed_expr_table,
                                                     processed_condition_markers,
                                                     scenario = "case_control")
 
+prioritized_table$sender <- factor(prioritized_table$sender, levels = celltype_order)
 make_mushroom_plot(prioritized_table, top_n = 30,
-                   show_all_datapoints = TRUE, true_color_range = TRUE, show_rankings = TRUE)
+                   show_all_datapoints = TRUE, show_rankings = TRUE)
 
 #### Reproducing Figure 3 ####
 top_n <- 10
@@ -250,7 +279,7 @@ p_ligand_aupr_subset <- make_heatmap_ggplot(vis_ligand_aupr %>% .[(nrow(.)-top_n
         legend.text = element_text(size = legend_text_size),
         legend.key.size = legend_key_size,
         legend.justification = c(0.7, 0),
-        axis.title.x.top = element_text(margin=margin(0, 0, -60, 0)),
+        axis.title.x.top = element_text(margin=margin(0, 0, -30, 0)),
         axis.text.x.top = element_blank(),
         axis.ticks = element_blank())
 
@@ -299,13 +328,14 @@ library(grid)
 par(bg = "transparent")
 # Create legend
 circos_legend <- ComplexHeatmap::Legend(
-  labels = unique(circos_links_subset$ligand_type),
-  background = ligand_colors[names(ligand_colors) %in% unique(circos_links_subset$ligand_type)],
+  labels = c(unique(circos_links_subset$ligand_type), "Target"),
+  background = c(ligand_colors[names(ligand_colors) %in% unique(circos_links_subset$ligand_type)], target_colors),
   type = "point",
   grid_height = unit(3, "mm"),
   grid_width = unit(3, "mm"),
   labels_gp = gpar(fontsize = 8)
   )
+
 
 circos_legend_grob <- grid.grabExpr(ComplexHeatmap::draw(circos_legend))
 
@@ -337,13 +367,14 @@ signaling_ggplot <- magick::image_ggplot(signaling_magick)
 
 # Mushroom plot
 p_mushroom_subset <- make_mushroom_plot(prioritized_table, top_n = 10,
-                                        show_all_datapoints = TRUE, true_color_range = TRUE, show_rankings = TRUE,
+                                        show_all_datapoints = TRUE, show_rankings = TRUE,
                                         legend.key.size = legend_key_size*0.5,
                                         #legend.justification = c(1, 0.5),
-                                        legend.position = c(1.1, 0.85),
+                                        legend.position = c(1.05, 0.85),
                                         #legend.key.height = unit(0.4, 'cm'),
                                         #legend.key.width = unit(0.3, 'cm'),
                                         #legend.box = "vertical",
+                                        legend.spacing.x = unit(0, 'cm'),
                                         #legend.margin = margin(0,0,0,-10, unit="cm"),
                                         legend.title = element_text(size=legend_title_size),
                                         legend.text = element_text(size=legend_text_size),
