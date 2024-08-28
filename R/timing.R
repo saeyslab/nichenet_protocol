@@ -272,5 +272,57 @@ box3 <- function(geneset_oi, background_expressed_genes, best_upstream_ligands, 
 box3_df <- microbenchmark(box3(geneset_oi, background_expressed_genes, best_upstream_ligands, ligand_target_matrix), times = 10, unit = "s")
 box3_df <- microbenchmark(box3(geneset_oi, background_expressed_genes, best_upstream_ligands, ligand_target_matrix, k=3, n=100), times = 10, unit = "s")
 
-timing_df <- rbind(steps_df, box1_df, box2_df, box3_df)
+box4 <- function(seuratObj, condition_oi, condition_reference, ligand_target_matrix, lr_network, weighted_networks){
+  receiver_celltypes <- c("CD4 T", "CD8 T", "Treg")
+
+  # Run NicheNet for each receiver cell type
+  nichenet_outputs <- lapply(receiver_celltypes, function(receiver_ct){ 
+    output <- nichenet_seuratobj_aggregate(receiver = receiver_ct,
+                                           seurat_obj = seuratObj,
+                                           condition_colname = "aggregate",
+                                           condition_oi = condition_oi,
+                                           condition_reference = condition_reference,
+                                           sender = sender_celltypes,
+                                           ligand_target_matrix = ligand_target_matrix,
+                                           lr_network = lr_network,
+                                           weighted_networks = weighted_networks,
+                                           expression_pct = 0.05) 
+    # Add receiver cell type in ligand activity table
+    output$ligand_activities$receiver <- receiver_ct 
+    return(output) 
+  }) 
+
+  # Calculate prioritization criteria for each receiver cell type
+  info_tables <- lapply(nichenet_outputs, function(output) {
+    lr_network_filtered <-  filter(lr_network[, c("from", "to")],
+                                   from %in% output$ligand_activities$test_ligand & 
+                                     to %in% output$background_expressed_genes) 
+    
+    generate_info_tables(seuratObj, 
+                         celltype_colname = "celltype", 
+                         senders_oi = sender_celltypes, 
+                         receivers_oi = unique(output$ligand_activities$receiver), 
+                         lr_network_filtered = lr_network_filtered, 
+                         condition_colname = "aggregate", 
+                         condition_oi = condition_oi, 
+                         condition_reference = condition_reference, 
+                         scenario = "case_control") 
+  })
+
+  # Combine the tables
+  info_tables_combined <- purrr::pmap(info_tables, bind_rows)
+  ligand_activities_combined <- purrr::map_dfr(nichenet_outputs, "ligand_activities")
+  
+  # Calculate the prioritization table based on the combined tables
+  prior_table_combined <- generate_prioritization_tables(
+    sender_receiver_info = distinct(info_tables_combined$sender_receiver_info), 
+    sender_receiver_de = info_tables_combined$sender_receiver_de,
+    ligand_activities = ligand_activities_combined, 
+    lr_condition_de = distinct(info_tables_combined$lr_condition_de),
+    scenario = "case_control")
+}
+
+box4_df <- microbenchmark(box4(seuratObj, "LCMV", "SS", ligand_target_matrix, lr_network, weighted_networks), times = 10, unit = "s")
+
+timing_df <- rbind(steps_df, box1_df, box2_df, box3_df, box4_df)
 saveRDS(timing_df, "timings_df.rds")
