@@ -27,7 +27,7 @@ R (RStudio desktop is recommended)
 NicheNet can be installed by running the following command in R:
 
 
-```r
+``` r
 if (!requireNamespace("devtools", quietly=TRUE))
   install.packages("devtools") 
 
@@ -45,7 +45,7 @@ The data can be downloaded by clicking “seuratObj.rds” at [https://zenodo.or
 To download the file within the R session, entering the following commands:
 
 
-```r
+``` r
 options(timeout = 3600) # increase time limit for downloading the data 
 seuratObj <- readRDS(url("https://zenodo.org/record/3531889/files/seuratObj.rds")) 
 ```
@@ -59,7 +59,7 @@ Three networks are required to run the NicheNet analysis: the ligand-target prio
 #### Downloading data locally
 
 
-```r
+``` r
 ZENODO_PATH=https://zenodo.org/record/7074291/files
 
 # Human ligand-target, ligand-receptor, and weighted networks
@@ -76,7 +76,7 @@ wget $ZENODO_PATH/weighted_networks_nsga2r_final_mouse.rds
 #### Download the file in the R session, mouse example
 
 
-```r
+``` r
 zenodo_path <- "https://zenodo.org/record/7074291/files/" 
 
 ligand_target_matrix <- readRDS(url(paste0(zenodo_path, "ligand_target_matrix_nsga2r_final_mouse.rds"))) 
@@ -102,7 +102,7 @@ ligand_target_matrix[1:5, 1:5] # target genes in rows, ligands in columns
 ## 0610010K14Rik 2.632082e-03
 ```
 
-```r
+``` r
 head(lr_network)
 ```
 
@@ -116,7 +116,7 @@ head(lr_network)
 ## 6             a  Mc1r omnipath omnipath
 ```
 
-```r
+``` r
 head(weighted_networks$lr_sig) # interactions and their weights in the ligand-receptor + signaling network
 ```
 
@@ -148,7 +148,7 @@ As two conditions are present in this example dataset, the gene set of interest 
 1. Load required libraries.
 
 
-```r
+``` r
 library(nichenetr)
 library(Seurat) 
 library(tidyverse) 
@@ -157,8 +157,8 @@ library(tidyverse)
 2. *(Optional)* For older Seurat objects, update it to be compatible with the currently installed Seurat version. For expression data with older gene symbols, convert them to more recent gene symbols. 
 
 
-```r
-seuratObj <- UpdateSeuratObject((seuratObj))
+``` r
+seuratObj <- UpdateSeuratObject(seuratObj)
 seuratObj <- alias_to_symbol_seurat(seuratObj, "mouse")
 
 seuratObj
@@ -172,24 +172,59 @@ seuratObj
 ##  4 dimensional reductions calculated: cca, cca.aligned, tsne, pca
 ```
 
+For Seurat v5 objects, a new Seurat object will have to be created after extracting the count matrix and metadata.
+
+``` r
+if (as.numeric(substr(packageVersion("Seurat"), 1, 1)) >= 5 & 
+    as.numeric(substr(seuratObj@version, 1, 1)) >= 5){
+  count_matrix <- GetAssayData(seuratObj, assay = "RNA", layer = "count")
+  data_matrix <- GetAssayData(seuratObj, assay = "RNA", layer = "data")
+
+  print(paste("All genes from raw count and normalized data are the same:", all(rownames(count_matrix) == rownames(data_matrix))))
+  
+  # Convert gene names
+  new_names <- convert_alias_to_symbols(rownames(count_matrix), "mouse", verbose=FALSE)
+  
+  # Check for duplicated gene names
+  doubles <- names(which(table(new_names) > 1))
+  # Set the duplicated names back to their old names
+  genes_remove <- names(which(names(new_names[new_names %in% doubles]) != (new_names[new_names %in% doubles])))
+  new_names[genes_remove] <- genes_remove
+  
+  # Change rownames
+  rownames(count_matrix) <- new_names
+  rownames(data_matrix) <- new_names
+  
+  seuratObj <- CreateSeuratObject(count_matrix,
+                                  meta.data = seuratObj@meta.data)
+  seuratObj[["RNA"]]$data <- data_matrix
+  
+  rm(doubles, genes_remove, new_names)
+}
+```
+
+```
+## [1] "All genes from raw count and normalized data are the same: TRUE"
+```
+
 3. Set the cell type annotation column as the identity of the Seurat object.
 
 
-```r
+``` r
 Idents(seuratObj) <- seuratObj$celltype 
 ```
 
 4. Define a "receiver" cell population. The receiver cell population can only consist of one cell type.
 
 
-```r
+``` r
 receiver <- "CD8 T" 
 ```
 
 5. Determine which genes are expressed in the receiver cell population. The function `get_expressed_genes` considers genes to be expressed if they have non-zero counts in a certain percentage of the cell population (by default set at 10%). Here, we have lowered the threshold to 5% (`pct`) as some of the ligands and receptors are very lowly expressed. Users are also free to define expressed genes differently in a way that fits their data.  
 
 
-```r
+``` r
 expressed_genes_receiver <- get_expressed_genes(receiver, seuratObj,  pct = 0.05)
 
 # Preview
@@ -200,7 +235,7 @@ length(expressed_genes_receiver)
 ## [1] 3903
 ```
 
-```r
+``` r
 head(expressed_genes_receiver)
 ```
 
@@ -213,7 +248,7 @@ head(expressed_genes_receiver)
 6. Get a list of all receptors available in the ligand-receptor network, and define expressed receptors as genes that are in the ligand-receptor network and expressed in the receiver.
 
 
-```r
+``` r
 all_receptors <- unique(lr_network$to)  
 expressed_receptors <- intersect(all_receptors, expressed_genes_receiver) 
 
@@ -225,7 +260,7 @@ length(expressed_receptors)
 ## [1] 113
 ```
 
-```r
+``` r
 head(expressed_receptors)
 ```
 
@@ -236,7 +271,7 @@ head(expressed_receptors)
 7. Define the potential ligands as all ligands whose cognate receptors are expressed.
 
 
-```r
+``` r
 potential_ligands <- lr_network[lr_network$to %in% expressed_receptors, ] 
 potential_ligands <- unique(potential_ligands$from) 
 
@@ -248,7 +283,7 @@ length(potential_ligands)
 ## [1] 483
 ```
 
-```r
+``` r
 head(potential_ligands)
 ```
 
@@ -260,7 +295,7 @@ head(potential_ligands)
 8. *(Optional)* For the sender-focused approach, define sender cell types and expressed genes in all populations combined. Then, filter potential ligands to those that are expressed in sender cells.
 
 
-```r
+``` r
 sender_celltypes <- c("CD4 T", "Treg", "Mono", "NK", "B", "DC") 
 list_expressed_genes_sender <- lapply(sender_celltypes, function(celltype) {
     get_expressed_genes(celltype, seuratObj, pct = 0.05)
@@ -276,7 +311,7 @@ length(expressed_genes_sender)
 ## [1] 8492
 ```
 
-```r
+``` r
 head(expressed_genes_sender)
 ```
 
@@ -285,7 +320,7 @@ head(expressed_genes_sender)
 ## [5] "0610012G03Rik" "Sptssa"
 ```
 
-```r
+``` r
 length(potential_ligands_focused)
 ```
 
@@ -293,7 +328,7 @@ length(potential_ligands_focused)
 ## [1] 127
 ```
 
-```r
+``` r
 head(potential_ligands_focused)
 ```
 
@@ -305,7 +340,7 @@ head(potential_ligands_focused)
 
 
 
-```r
+``` r
 condition_oi <- "LCMV" 
 condition_reference <- "SS" 
 ```
@@ -315,7 +350,7 @@ condition_reference <- "SS"
 By default, both genes that are up and downregulated are considered. Users can choose to focus on only one direction (typically upregulation) by removing the `abs()` function and adjusting the equality term to either \>= 0.25 or \<= -0.25 for up and downregulation, respectively. We recommend the gene set of interest to contain between 20 and 2000 genes for optimal ligand activity prediction. Moreover, the number of background genes should be sufficiently greater than those of the gene set of interest.
 
 
-```r
+``` r
 seurat_obj_receiver <- subset(seuratObj, idents = receiver)
 DE_table_receiver <- FindMarkers(object = seurat_obj_receiver,  
                                  ident.1 = condition_oi, ident.2 = condition_reference,
@@ -330,10 +365,10 @@ length(geneset_oi)
 ```
 
 ```
-## [1] 260
+## [1] 261
 ```
 
-```r
+``` r
 head(geneset_oi)
 ```
 
@@ -344,7 +379,7 @@ head(geneset_oi)
 11. Determine background genes as all the genes expressed in the receiver cell type that are also in the ligand-target matrix.
 
 
-```r
+``` r
 background_expressed_genes <- expressed_genes_receiver[ 
 expressed_genes_receiver %in% rownames(ligand_target_matrix)] 
 
@@ -356,7 +391,7 @@ length(background_expressed_genes)
 ## [1] 3476
 ```
 
-```r
+``` r
 head(background_expressed_genes)
 ```
 
@@ -370,14 +405,14 @@ head(background_expressed_genes)
 12. Perform the ligand activity analysis, then sort the ligands based on the area under the precision-recall curve (AUPR).
 
 
-```r
+``` r
 ligand_activities <- predict_ligand_activities(
   geneset = geneset_oi,
   background_expressed_genes = background_expressed_genes,
   ligand_target_matrix = ligand_target_matrix,
   potential_ligands = potential_ligands) 
 
-ligand_activities <- ligand_activities[order(ligand_activities$aupr_corrected, 	decreasing = TRUE), ] 
+ligand_activities <- ligand_activities[order(ligand_activities$aupr_corrected, decreasing = TRUE), ] 
 
 # Preview
 dim(ligand_activities)
@@ -387,7 +422,7 @@ dim(ligand_activities)
 ## [1] 483   5
 ```
 
-```r
+``` r
 head(ligand_activities)
 ```
 
@@ -395,19 +430,19 @@ head(ligand_activities)
 ## # A tibble: 6 × 5
 ##   test_ligand auroc  aupr aupr_corrected pearson
 ##   <chr>       <dbl> <dbl>          <dbl>   <dbl>
-## 1 Ifna1       0.714 0.433          0.358   0.498
-## 2 Ifnb1       0.711 0.401          0.327   0.433
-## 3 Ifnl3       0.683 0.392          0.317   0.433
-## 4 Il27        0.682 0.391          0.316   0.445
-## 5 Ifng        0.732 0.382          0.307   0.451
-## 6 Ifnk        0.671 0.282          0.207   0.272
+## 1 Ifna1       0.713 0.432          0.357   0.497
+## 2 Ifnb1       0.710 0.400          0.325   0.432
+## 3 Ifnl3       0.681 0.391          0.316   0.431
+## 4 Il27        0.680 0.390          0.315   0.444
+## 5 Ifng        0.730 0.381          0.306   0.450
+## 6 Ifnk        0.669 0.281          0.206   0.271
 ```
 
 13. *(Optional)* If performing the sender-focused approach, subset the ligand activities to only contain expressed ligands.
 **Note:** When using the sender-agnostic approach, simply replace `ligand_activities` with `ligand_activities_all` in Steps 14 and 20.
 
 
-```r
+``` r
 ligand_activities_all <- ligand_activities 
 ligand_activities <- ligand_activities[ligand_activities$test_ligand %in% potential_ligands_focused, ] 
 
@@ -419,7 +454,7 @@ dim(ligand_activities)
 ## [1] 127   5
 ```
 
-```r
+``` r
 head(ligand_activities)
 ```
 
@@ -427,18 +462,18 @@ head(ligand_activities)
 ## # A tibble: 6 × 5
 ##   test_ligand auroc  aupr aupr_corrected pearson
 ##   <chr>       <dbl> <dbl>          <dbl>   <dbl>
-## 1 Il27        0.682 0.391          0.316   0.445
-## 2 Ebi3        0.666 0.264          0.189   0.256
-## 3 Tnf         0.671 0.205          0.131   0.249
-## 4 Ptprc       0.660 0.198          0.124   0.168
-## 5 H2-Eb1      0.656 0.195          0.120   0.182
-## 6 Vsig10      0.649 0.194          0.119   0.170
+## 1 Il27        0.680 0.390          0.315   0.444
+## 2 Ebi3        0.663 0.263          0.188   0.254
+## 3 Tnf         0.669 0.205          0.130   0.248
+## 4 Ptprc       0.658 0.198          0.123   0.167
+## 5 H2-Eb1      0.654 0.195          0.120   0.181
+## 6 Vsig10      0.647 0.193          0.119   0.169
 ```
 
 14. Obtain the names of the top 30 ligands. Box 3 describes a method for assessing the quality of predicted ligands. 
 
 
-```r
+``` r
 best_upstream_ligands <- top_n(ligand_activities, 30, aupr_corrected)$test_ligand 
  
 # Preview
@@ -449,7 +484,7 @@ length(best_upstream_ligands)
 ## [1] 30
 ```
 
-```r
+``` r
 head(best_upstream_ligands)
 ```
 
@@ -460,7 +495,7 @@ head(best_upstream_ligands)
 15. Infer which genes in the gene set of interest have the highest regulatory potential for each top-ranked ligand. The function get_weighted_ligand_target_links will return genes that are in the gene set of interest and are the top `n` targets of a ligand (default: `n = 200`).
 
 
-```r
+``` r
 active_ligand_target_links_df <- lapply(best_upstream_ligands,
                                         get_weighted_ligand_target_links, 
                                         geneset = geneset_oi, 
@@ -477,7 +512,7 @@ dim(active_ligand_target_links_df)
 ## [1] 656   3
 ```
 
-```r
+``` r
 head(active_ligand_target_links_df)
 ```
 
@@ -496,7 +531,7 @@ head(active_ligand_target_links_df)
 16. Similarly, identify which receptors have the highest interaction potential with the top-ranked ligands.
 
 
-```r
+``` r
 ligand_receptor_links_df <- get_weighted_ligand_receptor_links(
   best_upstream_ligands, expressed_receptors,
   lr_network, weighted_networks$lr_sig) 
@@ -509,7 +544,7 @@ dim(ligand_receptor_links_df)
 ## [1] 54  3
 ```
 
-```r
+``` r
 head(ligand_receptor_links_df)
 ```
 
@@ -532,7 +567,7 @@ Visualizations covered in this section include: heatmaps of ligand-target regula
 17. Prepare the weighted ligand-target data frame for visualization by transforming it into matrix. By default, regulatory potentials lower than the 25th percentile are set to zero for visualization clarity. This cutoff parameter can freely be tuned by the user.
 
 
-```r
+``` r
 active_ligand_target_links <- prepare_ligand_target_visualization(
   ligand_target_df = active_ligand_target_links_df,
   ligand_target_matrix = ligand_target_matrix,
@@ -542,7 +577,7 @@ active_ligand_target_links <- prepare_ligand_target_visualization(
 18. Order the rows to follow the rankings of the ligands, and the columns alphabetically (Figure 3a).
 
 
-```r
+``` r
 order_ligands <- rev(intersect(best_upstream_ligands, colnames(active_ligand_target_links))) 
 order_targets <- intersect(unique(active_ligand_target_links_df$target), rownames(active_ligand_target_links)) 
 
@@ -563,7 +598,7 @@ vis_ligand_target <- t(active_ligand_target_links[order_targets,order_ligands])
 19. Create a heatmap for ligand-receptor interactions (Figure 3b).
 
 
-```r
+``` r
 vis_ligand_receptor_network <- prepare_ligand_receptor_visualization(
   ligand_receptor_links_df, best_upstream_ligands,
   order_hclust = "receptors") 
@@ -578,7 +613,7 @@ vis_ligand_receptor_network <- prepare_ligand_receptor_visualization(
 20. Create a heatmap of the ligand activity measure (Figure 3c).
 
 
-```r
+``` r
 ligand_aupr_matrix <- column_to_rownames(ligand_activities, "test_ligand") 
 ligand_aupr_matrix <- ligand_aupr_matrix[rev(best_upstream_ligands), "aupr_corrected", drop=FALSE] 
 vis_ligand_aupr <- as.matrix(ligand_aupr_matrix, ncol = 1) 
@@ -594,7 +629,7 @@ vis_ligand_aupr <- as.matrix(ligand_aupr_matrix, ncol = 1)
 21. For each cell type, compute the log-fold change of the top-ranked ligands between treatment conditions.
 
 
-```r
+``` r
 celltype_order <- levels(Idents(seuratObj)) 
 
 DE_table_top_ligands <- lapply(
@@ -620,15 +655,15 @@ DE_table_top_ligands <- reduce(DE_table_top_ligands, full_join)
 ## Joining with `by = join_by(gene)`
 ```
 
-```r
+``` r
 DE_table_top_ligands <- column_to_rownames(DE_table_top_ligands, "gene") 
 ```
 
 22. Create the heatmap (Figure 3d).
 
 
-```r
-vis_ligand_lfc <- as.matrix(DE_table_top_ligands[rev(best_upstream_ligands), ]) 
+``` r
+vis_ligand_lfc <- as.matrix(DE_table_top_ligands[rev(best_upstream_ligands), , drop=FALSE]) 
 
 (make_threecolor_heatmap_ggplot(vis_ligand_lfc,
                                 "Prioritized ligands", "LFC in Sender",
@@ -642,7 +677,7 @@ vis_ligand_lfc <- as.matrix(DE_table_top_ligands[rev(best_upstream_ligands), ])
 23. Create a dot plot showing the average expression of ligands per cell type, as well as the percentage of cells from the cell type expressing the ligands (Figure 3e).
 
 
-```r
+``` r
 DotPlot(subset(seuratObj, celltype %in% sender_celltypes),
         features = rev(best_upstream_ligands), cols = "RdYlBu") + 
   coord_flip() +
@@ -654,7 +689,7 @@ DotPlot(subset(seuratObj, celltype %in% sender_celltypes),
 24. *(Optional)* Create a line plot comparing the rankings between the sender-agnostic and sender-focused approach (Figure 3f).
 
 
-```r
+``` r
 (make_line_plot(ligand_activities = ligand_activities_all,
                 potential_ligands = potential_ligands_focused) +
    theme(plot.title = element_text(size=11, hjust=0.1, margin=margin(0, 0, -5, 0))))
@@ -665,7 +700,7 @@ DotPlot(subset(seuratObj, celltype %in% sender_celltypes),
 25. To create a ligand-target chord diagram, assign each ligand to a specific cell type. A ligand is only assigned to a cell type if that cell type is the only one to show an average expression of that ligand that is higher than the mean + one standard deviation across all cell types. Otherwise, it is assigned to "General".
 
 
-```r
+``` r
 ligand_type_indication_df <- assign_ligands_to_celltype(seuratObj, best_upstream_ligands[1:20], celltype_col = "celltype") 
 
 # Preview
@@ -676,7 +711,7 @@ dim(ligand_type_indication_df)
 ## [1] 20  2
 ```
 
-```r
+``` r
 head(ligand_type_indication_df)
 ```
 
@@ -686,15 +721,15 @@ head(ligand_type_indication_df)
 ## 2        Treg    Tnf
 ## 3           B H2-Eb1
 ## 4           B  H2-M3
-## 5           B H2-T24
-## 6           B  H2-Oa
+## 5           B  H2-Oa
+## 6           B H2-T24
 ```
 
 
 26. Using the weighted ligand-target data frame from Step 15, group target genes and filter out the lowest 40% of the regulatory potentials. In this case, there is only one grouping of target genes (DE genes after LCMV infection), but users can define multiple target gene groups if applicable. In case the resulting chord diagram is still overcrowded, users may adjust the `cutoff` parameter to filter out even more ligand-target links.
 
 
-```r
+``` r
 active_ligand_target_links_df$target_type <- "LCMV-DE" 
 circos_links <- get_ligand_target_links_oi(ligand_type_indication_df,
                                            active_ligand_target_links_df, cutoff = 0.40) 
@@ -704,7 +739,7 @@ circos_links <- get_ligand_target_links_oi(ligand_type_indication_df,
 ## Joining with `by = join_by(ligand)`
 ```
 
-```r
+``` r
 # Preview
 dim(circos_links)
 ```
@@ -713,7 +748,7 @@ dim(circos_links)
 ## [1] 485   5
 ```
 
-```r
+``` r
 head(circos_links)
 ```
 
@@ -732,7 +767,7 @@ head(circos_links)
 27. Assign colors to cell types and target gene groups. Then, prepare the data frame for visualization: the function assigns colors to ligands and targets and calculates gaps between sectors of the chord diagram.
 
 
-```r
+``` r
 ligand_colors <- c("General" = "#377EB8", "NK" = "#4DAF4A", "B" = "#984EA3",
                    "Mono" = "#FF7F00", "DC" = "#FFFF33", "Treg" = "#F781BF",
                    "CD8 T"= "#E41A1C") 
@@ -751,7 +786,7 @@ vis_circos_obj <- prepare_circos_visualization(circos_links,
 28. Draw the chord diagram (Figure 3g).
 
 
-```r
+``` r
 make_circos_plot(vis_circos_obj, transparency = FALSE,  args.circos.text = list(cex = 0.5)) 
 ```
 
@@ -760,7 +795,7 @@ make_circos_plot(vis_circos_obj, transparency = FALSE,  args.circos.text = list(
 29. To create a ligand-receptor chord diagram, perform Steps 26-28 using the weighted ligand-receptor data frame from Step 16. As `prepare_circos_visualization` accesses "target" and "target_type" columns, it is necessary to rename the columns accordingly even though the data frame contains receptor and not target gene information. When drawing the plot, the argument `link.visible` = TRUE is also necessary for making all links visible, since no cutoff is used to filter out ligand-receptor interactions.
 
 
-```r
+``` r
 lr_network_top_df <- rename(ligand_receptor_links_df, ligand=from, target=to) 
 lr_network_top_df$target_type = "LCMV_CD8T_receptor" 
 lr_network_top_df <- inner_join(lr_network_top_df, ligand_type_indication_df) 
@@ -770,7 +805,7 @@ lr_network_top_df <- inner_join(lr_network_top_df, ligand_type_indication_df)
 ## Joining with `by = join_by(ligand)`
 ```
 
-```r
+``` r
 receptor_colors <- c("LCMV_CD8T_receptor" = "#E41A1C") 
 
 vis_circos_receptor_obj <- prepare_circos_visualization(lr_network_top_df,
@@ -783,7 +818,7 @@ vis_circos_receptor_obj <- prepare_circos_visualization(lr_network_top_df,
 ## Joining with `by = join_by(target_type)`
 ```
 
-```r
+``` r
 make_circos_plot(vis_circos_receptor_obj, transparency = TRUE,
                  link.visible = TRUE,  args.circos.text = list(cex = 0.8)) 
 ```
@@ -793,7 +828,7 @@ make_circos_plot(vis_circos_receptor_obj, transparency = TRUE,
 30. To create a signaling graph, first download the ligand-transcription factor matrix. Then, extract the most highly weighted paths from the ligand to the target genes of interest. The number of regulators that are extracted can be adjusted using `top_n_regulators`. By setting `minmax_scaling = TRUE`, we perform min-max scaling to make the weights between the signaling and gene regulatory network more comparable. Additionally, it is possible to check which data sources support the inferred pathway by using the function `infer_supporting_datasources`. This would require separate signaling and gene regulatory networks as input (see Box 1 for code to download these networks).
 
 
-```r
+``` r
 ligand_tf_matrix <- readRDS(url("https://zenodo.org/record/7074291/files/ligand_tf_matrix_nsga2r_final_mouse.rds")) 
 ligands_oi <- "Ebi3" 
 targets_oi <- c("Irf1", "Irf9") 
@@ -808,7 +843,7 @@ active_signaling_network <- get_ligand_signaling_path(ligands_all = ligands_oi,
 31. Convert the data frames into a DiagrammeR object, and render the signaling graph (Figure 3h).
 
 
-```r
+``` r
 signaling_graph <- diagrammer_format_signaling_graph(
   signaling_graph_list = active_signaling_network,
   ligands_all = ligands_oi, targets_all = targets_oi,
@@ -817,21 +852,9 @@ signaling_graph <- diagrammer_format_signaling_graph(
 DiagrammeR::render_graph(signaling_graph, layout = "tree") 
 ```
 
-```
-## Warning: The `x` argument of `as_tibble.matrix()` must have unique column names if
-## `.name_repair` is omitted as of tibble 2.0.0.
-## ℹ Using compatibility `.name_repair`.
-## ℹ The deprecated feature was likely used in the DiagrammeR package.
-##   Please report the issue at
-##   <https://github.com/rich-iannone/DiagrammeR/issues>.
-## This warning is displayed once every 8 hours.
-## Call `lifecycle::last_lifecycle_warnings()` to see where this warning was
-## generated.
-```
-
 ```{=html}
-<div class="grViz html-widget html-fill-item-overflow-hidden html-fill-item" id="htmlwidget-0dd1ba32e0541469b5ed" style="width:672px;height:480px;"></div>
-<script type="application/json" data-for="htmlwidget-0dd1ba32e0541469b5ed">{"x":{"diagram":"digraph {\n\ngraph [layout = \"neato\",\n       outputorder = \"edgesfirst\",\n       bgcolor = \"white\"]\n\nnode [fontname = \"Helvetica\",\n      fontsize = \"10\",\n      shape = \"circle\",\n      fixedsize = \"true\",\n      width = \"0.5\",\n      style = \"filled\",\n      fillcolor = \"aliceblue\",\n      color = \"gray70\",\n      fontcolor = \"gray50\"]\n\nedge [fontname = \"Helvetica\",\n     fontsize = \"8\",\n     len = \"1.5\",\n     color = \"gray80\",\n     arrowsize = \"0.5\"]\n\n  \"1\" [label = \"Ebi3\", style = \"filled\", width = \"0.75\", fontcolor = \"white\", fillcolor = \"#CD5C5C\", pos = \"7.5,7!\"] \n  \"2\" [label = \"Stat1\", style = \"filled\", width = \"0.75\", fontcolor = \"white\", fillcolor = \"#7F7F7F\", pos = \"7.5,6!\"] \n  \"3\" [label = \"Stat2\", style = \"filled\", width = \"0.75\", fontcolor = \"white\", fillcolor = \"#7F7F7F\", pos = \"3.5,3!\"] \n  \"4\" [label = \"Stat3\", style = \"filled\", width = \"0.75\", fontcolor = \"white\", fillcolor = \"#7F7F7F\", pos = \"8,5!\"] \n  \"5\" [label = \"Stat4\", style = \"filled\", width = \"0.75\", fontcolor = \"white\", fillcolor = \"#7F7F7F\", pos = \"8.5,4!\"] \n  \"6\" [label = \"Stat5a\", style = \"filled\", width = \"0.75\", fontcolor = \"white\", fillcolor = \"#7F7F7F\", pos = \"8,2!\"] \n  \"7\" [label = \"Irf1\", style = \"filled\", width = \"0.75\", fontcolor = \"white\", fillcolor = \"#4682B4\", pos = \"10.5,1!\"] \n  \"8\" [label = \"Irf9\", style = \"filled\", width = \"0.75\", fontcolor = \"white\", fillcolor = \"#4682B4\", pos = \"6,1!\"] \n\"1\"->\"2\" [penwidth = \"1.25977306006657\", color = \"indianred\"] \n\"1\"->\"3\" [penwidth = \"1.13167686673422\", color = \"indianred\"] \n\"1\"->\"4\" [penwidth = \"1.23806443285084\", color = \"indianred\"] \n\"1\"->\"5\" [penwidth = \"1.43281572060901\", color = \"indianred\"] \n\"1\"->\"6\" [penwidth = \"1.14009611891571\", color = \"indianred\"] \n\"2\"->\"3\" [penwidth = \"1.40533373915141\", color = \"indianred\"] \n\"2\"->\"4\" [penwidth = \"1.54144367250614\", color = \"indianred\"] \n\"2\"->\"5\" [penwidth = \"0.987020557480735\", color = \"indianred\"] \n\"2\"->\"6\" [penwidth = \"1.34717911930313\", color = \"indianred\"] \n\"3\"->\"2\" [penwidth = \"1.75\", color = \"indianred\"] \n\"3\"->\"6\" [penwidth = \"0.752397933486639\", color = \"indianred\"] \n\"4\"->\"2\" [penwidth = \"1.43118032085197\", color = \"indianred\"] \n\"4\"->\"3\" [penwidth = \"1.27328859647951\", color = \"indianred\"] \n\"4\"->\"5\" [penwidth = \"1.02801783517307\", color = \"indianred\"] \n\"4\"->\"6\" [penwidth = \"1.27932306138063\", color = \"indianred\"] \n\"5\"->\"2\" [penwidth = \"0.947717727085479\", color = \"indianred\"] \n\"5\"->\"3\" [penwidth = \"0.953340730930064\", color = \"indianred\"] \n\"5\"->\"4\" [penwidth = \"0.971892004543157\", color = \"indianred\"] \n\"5\"->\"6\" [penwidth = \"0.904230698245332\", color = \"indianred\"] \n\"6\"->\"3\" [penwidth = \"0.75\", color = \"indianred\"] \n\"6\"->\"4\" [penwidth = \"1.22412329170677\", color = \"indianred\"] \n\"6\"->\"5\" [penwidth = \"0.921665045908184\", color = \"indianred\"] \n\"2\"->\"7\" [penwidth = \"1.54631395817282\", color = \"steelblue\"] \n\"2\"->\"8\" [penwidth = \"1.34428158131059\", color = \"steelblue\"] \n\"3\"->\"7\" [penwidth = \"1.21853545540254\", color = \"steelblue\"] \n\"3\"->\"8\" [penwidth = \"1.00841001829415\", color = \"steelblue\"] \n\"4\"->\"7\" [penwidth = \"1.75\", color = \"steelblue\"] \n\"4\"->\"8\" [penwidth = \"1.32165980574267\", color = \"steelblue\"] \n\"5\"->\"7\" [penwidth = \"1.11251821968624\", color = \"steelblue\"] \n\"5\"->\"8\" [penwidth = \"0.75\", color = \"steelblue\"] \n\"6\"->\"7\" [penwidth = \"1.0743405567136\", color = \"steelblue\"] \n\"6\"->\"8\" [penwidth = \"0.909277567466469\", color = \"steelblue\"] \n}","config":{"engine":"dot","options":null}},"evals":[],"jsHooks":[]}</script>
+<div class="grViz html-widget html-fill-item" id="htmlwidget-0dd1ba32e0541469b5ed" style="width:672px;height:480px;"></div>
+<script type="application/json" data-for="htmlwidget-0dd1ba32e0541469b5ed">{"x":{"diagram":"digraph {\n\ngraph [layout = \"neato\",\n       outputorder = \"edgesfirst\",\n       bgcolor = \"white\"]\n\nnode [fontname = \"Helvetica\",\n      fontsize = \"10\",\n      shape = \"circle\",\n      fixedsize = \"true\",\n      width = \"0.5\",\n      style = \"filled\",\n      fillcolor = \"aliceblue\",\n      color = \"gray70\",\n      fontcolor = \"gray50\"]\n\nedge [fontname = \"Helvetica\",\n     fontsize = \"8\",\n     len = \"1.5\",\n     color = \"gray80\",\n     arrowsize = \"0.5\"]\n\n  \"1\" [label = \"Ebi3\", style = \"filled\", width = \"0.75\", fillcolor = \"#CD5C5C\", fontcolor = \"white\", pos = \"7.5,7!\"] \n  \"2\" [label = \"Stat1\", style = \"filled\", width = \"0.75\", fillcolor = \"#7F7F7F\", fontcolor = \"white\", pos = \"7.5,6!\"] \n  \"3\" [label = \"Stat2\", style = \"filled\", width = \"0.75\", fillcolor = \"#7F7F7F\", fontcolor = \"white\", pos = \"3.5,3!\"] \n  \"4\" [label = \"Stat3\", style = \"filled\", width = \"0.75\", fillcolor = \"#7F7F7F\", fontcolor = \"white\", pos = \"8,5!\"] \n  \"5\" [label = \"Stat4\", style = \"filled\", width = \"0.75\", fillcolor = \"#7F7F7F\", fontcolor = \"white\", pos = \"8.5,4!\"] \n  \"6\" [label = \"Stat5a\", style = \"filled\", width = \"0.75\", fillcolor = \"#7F7F7F\", fontcolor = \"white\", pos = \"8,2!\"] \n  \"7\" [label = \"Irf1\", style = \"filled\", width = \"0.75\", fillcolor = \"#4682B4\", fontcolor = \"white\", pos = \"10.5,1!\"] \n  \"8\" [label = \"Irf9\", style = \"filled\", width = \"0.75\", fillcolor = \"#4682B4\", fontcolor = \"white\", pos = \"6,1!\"] \n\"1\"->\"2\" [penwidth = \"1.25977306006657\", color = \"indianred\"] \n\"1\"->\"3\" [penwidth = \"1.13167686673422\", color = \"indianred\"] \n\"1\"->\"4\" [penwidth = \"1.23806443285084\", color = \"indianred\"] \n\"1\"->\"5\" [penwidth = \"1.43281572060901\", color = \"indianred\"] \n\"1\"->\"6\" [penwidth = \"1.14009611891571\", color = \"indianred\"] \n\"2\"->\"3\" [penwidth = \"1.40533373915141\", color = \"indianred\"] \n\"2\"->\"4\" [penwidth = \"1.54144367250614\", color = \"indianred\"] \n\"2\"->\"5\" [penwidth = \"0.987020557480735\", color = \"indianred\"] \n\"2\"->\"6\" [penwidth = \"1.34717911930313\", color = \"indianred\"] \n\"3\"->\"2\" [penwidth = \"1.75\", color = \"indianred\"] \n\"3\"->\"6\" [penwidth = \"0.752397933486639\", color = \"indianred\"] \n\"4\"->\"2\" [penwidth = \"1.43118032085197\", color = \"indianred\"] \n\"4\"->\"3\" [penwidth = \"1.27328859647951\", color = \"indianred\"] \n\"4\"->\"5\" [penwidth = \"1.02801783517307\", color = \"indianred\"] \n\"4\"->\"6\" [penwidth = \"1.27932306138063\", color = \"indianred\"] \n\"5\"->\"2\" [penwidth = \"0.947717727085479\", color = \"indianred\"] \n\"5\"->\"3\" [penwidth = \"0.953340730930064\", color = \"indianred\"] \n\"5\"->\"4\" [penwidth = \"0.971892004543157\", color = \"indianred\"] \n\"5\"->\"6\" [penwidth = \"0.904230698245332\", color = \"indianred\"] \n\"6\"->\"3\" [penwidth = \"0.75\", color = \"indianred\"] \n\"6\"->\"4\" [penwidth = \"1.22412329170677\", color = \"indianred\"] \n\"6\"->\"5\" [penwidth = \"0.921665045908184\", color = \"indianred\"] \n\"2\"->\"7\" [penwidth = \"1.54631395817282\", color = \"steelblue\"] \n\"2\"->\"8\" [penwidth = \"1.34428158131059\", color = \"steelblue\"] \n\"3\"->\"7\" [penwidth = \"1.21853545540254\", color = \"steelblue\"] \n\"3\"->\"8\" [penwidth = \"1.00841001829415\", color = \"steelblue\"] \n\"4\"->\"7\" [penwidth = \"1.75\", color = \"steelblue\"] \n\"4\"->\"8\" [penwidth = \"1.32165980574267\", color = \"steelblue\"] \n\"5\"->\"7\" [penwidth = \"1.11251821968624\", color = \"steelblue\"] \n\"5\"->\"8\" [penwidth = \"0.75\", color = \"steelblue\"] \n\"6\"->\"7\" [penwidth = \"1.0743405567136\", color = \"steelblue\"] \n\"6\"->\"8\" [penwidth = \"0.909277567466469\", color = \"steelblue\"] \n}","config":{"engine":"dot","options":null}},"evals":[],"jsHooks":[]}</script>
 ```
 
 ## Prioritization of ligand-receptor pairs
@@ -841,7 +864,7 @@ This section is only applicable for the sender-focused approach. Whereas Steps 1
 32. Filter the ligand-receptor network to only contain expressed interactions. 
 
 
-```r
+``` r
 lr_network_filtered <- filter(lr_network, from %in% potential_ligands_focused &
                                 to %in% expressed_receptors)[, c("from", "to")]
 ```
@@ -854,7 +877,7 @@ A. **Using the wrapper function.**
 (i) Run the wrapper function. 
 
 
-```r
+``` r
 info_tables <- generate_info_tables( 
     seuratObj, 
     celltype_colname = "celltype", 
@@ -900,10 +923,15 @@ info_tables <- generate_info_tables(
 ## Calculating cluster DC
 ```
 
+```
+## As of Seurat v5, we recommend using AggregateExpression to perform pseudo-bulk analysis.
+## This message is displayed once per session.
+```
+
 (ii) Assign the output of the wrapper function to variables. 
 
 
-```r
+``` r
 processed_DE_table <- info_tables$sender_receiver_de  
 processed_expr_table <- info_tables$sender_receiver_info  
 processed_condition_markers <- info_tables$lr_condition_de
@@ -916,35 +944,35 @@ dim(processed_DE_table)
 ## [1] 1272   13
 ```
 
-```r
+``` r
 head(processed_DE_table)
 ```
 
 ```
 ##   sender receiver ligand receptor lfc_ligand lfc_receptor
-## 1     DC    CD8 T   Ccl5    Cxcr3   6.432043   0.16714791
-## 2   Mono    CD8 T   Lyz2    Itgal   5.493265  -0.01687003
-## 3     DC    CD8 T  H2-M2     Cd8a   3.416479   1.94059972
-## 4     DC    CD8 T Cxcl16    Cxcr6   4.182085   0.54826454
-## 5   Mono    CD8 T  Cxcl9    Cxcr3   4.328801   0.16714791
-## 6   Mono    CD8 T  Cxcl9     Dpp4   4.328801   0.16416445
+## 1     DC    CD8 T  H2-M2     Cd8a  11.002412    2.3838066
+## 2     DC    CD8 T  H2-M2    Klrd1  11.002412    0.9199196
+## 3     DC    CD8 T  Ccl22     Dpp4   9.920608    0.2991720
+## 4     DC    CD8 T Vsig10    Il6st  10.070530    0.1411494
+## 5     DC    CD8 T  Ccl22     Ccr7   9.920608    0.1468652
+## 6     DC    CD8 T Cxcl16    Cxcr6   8.101436    1.8384579
 ##   ligand_receptor_lfc_avg  p_val_ligand  p_adj_ligand p_val_receptor
-## 1                3.299595  1.893317e-25  2.563740e-21   7.758812e-05
-## 2                2.738198 1.728697e-160 2.340828e-156   4.973381e-02
-## 3                2.678539 1.017174e-272 1.377355e-268  5.250531e-206
-## 4                2.365175 1.138617e-243 1.541801e-239   5.987787e-21
-## 5                2.247975 3.834954e-124 5.192911e-120   7.758812e-05
-## 6                2.246483 3.834954e-124 5.192911e-120   6.628900e-04
+## 1                6.693109 1.017174e-272 1.377355e-268  5.250531e-206
+## 2                5.961166 1.017174e-272 1.377355e-268   6.104465e-17
+## 3                5.109890 1.590801e-296 2.154103e-292   6.628900e-04
+## 4                5.105840 2.637179e-194 3.571005e-190   1.470347e-02
+## 5                5.033737 1.590801e-296 2.154103e-292   5.070025e-05
+## 6                4.969947 1.138617e-243 1.541801e-239   5.987787e-21
 ##   p_adj_receptor pct_expressed_sender pct_expressed_receiver
-## 1   1.000000e+00                1.000                  0.042
-## 2   1.000000e+00                0.933                  0.188
-## 3  7.109745e-202                0.429                  0.659
-## 4   8.108063e-17                0.929                  0.089
-## 5   1.000000e+00                0.547                  0.042
-## 6   1.000000e+00                0.547                  0.148
+## 1  7.109745e-202                0.429                  0.659
+## 2   8.266056e-13                0.429                  0.185
+## 3   1.000000e+00                0.500                  0.148
+## 4   1.000000e+00                0.286                  0.090
+## 5   6.865321e-01                0.500                  0.320
+## 6   8.108063e-17                0.929                  0.089
 ```
 
-```r
+``` r
 dim(processed_expr_table)
 ```
 
@@ -952,7 +980,7 @@ dim(processed_expr_table)
 ## [1] 10535     7
 ```
 
-```r
+``` r
 head(processed_expr_table)
 ```
 
@@ -968,7 +996,7 @@ head(processed_expr_table)
 ## 6 DC     DC       B2m    Tap1           216.         5.91                1277.
 ```
 
-```r
+``` r
 dim(processed_condition_markers)
 ```
 
@@ -976,25 +1004,25 @@ dim(processed_condition_markers)
 ## [1] 215   9
 ```
 
-```r
+``` r
 head(processed_condition_markers)
 ```
 
 ```
-##   ligand receptor lfc_ligand lfc_receptor ligand_receptor_lfc_avg  p_val_ligand
-## 1 H2-Ab1      Cd4  2.4021254   0.11569357               1.2589095  4.424390e-06
-## 2 Cxcl10     Dpp4  1.6066163   0.35175421               0.9791853  6.700636e-29
-## 3    B2m     Tap1  0.7071427   1.13931050               0.9232266 6.936359e-174
-## 4 H2-T22    Klrd1  1.5223370  -0.05659737               0.7328698 1.006291e-111
-## 5 H2-T23    Klrd1  1.4651999  -0.05659737               0.7043013 1.789643e-114
-## 6 Cxcl10    Cxcr3  1.6066163  -0.25400642               0.6763049  6.700636e-29
-##    p_adj_ligand p_val_receptor p_adj_receptor
-## 1  5.991066e-02   5.634068e-02   1.000000e+00
-## 2  9.073332e-25   1.170731e-06   1.585287e-02
-## 3 9.392524e-170   3.585450e-52   4.855057e-48
-## 4 1.362618e-107   6.202530e-01   1.000000e+00
-## 5 2.423356e-110   6.202530e-01   1.000000e+00
-## 6  9.073332e-25   1.918372e-06   2.597667e-02
+##    ligand receptor lfc_ligand lfc_receptor ligand_receptor_lfc_avg p_val_ligand
+## 1  Cxcl11     Dpp4   7.197344    0.7345098                3.965927 0.0001621364
+## 2 Sirpb1c     Cd47   6.236414    0.7474147                3.491914 0.0006820290
+## 3  Cxcl11    Cxcr3   7.197344   -1.1317386                3.032803 0.0001621364
+## 4   Ccl22     Dpp4   5.075469    0.7345098                2.904989 0.0863610523
+## 5   F13a1    Itga4   5.436884    0.1228459                2.779865 0.0299628836
+## 6    Vcan     Sell   5.234169    0.3254999                2.779835 0.0423593686
+##   p_adj_ligand p_val_receptor p_adj_receptor
+## 1            1   1.170731e-06   1.585287e-02
+## 2            1   8.720485e-23   1.180841e-18
+## 3            1   1.918372e-06   2.597667e-02
+## 4            1   1.170731e-06   1.585287e-02
+## 5            1   6.837926e-02   1.000000e+00
+## 6            1   7.148719e-07   9.680080e-03
 ```
  
 
@@ -1003,7 +1031,7 @@ head(processed_condition_markers)
 (i) Calculate DE between cell types within the condition of interest.
 
 
-```r
+``` r
 DE_table <- FindAllMarkers(subset(seuratObj, subset = aggregate == "LCMV"),
                            min.pct = 0, logfc.threshold = 0, return.thresh = 1,
                            features = unique(unlist(lr_network_filtered))) 
@@ -1040,7 +1068,7 @@ DE_table <- FindAllMarkers(subset(seuratObj, subset = aggregate == "LCMV"),
 (ii) Calculate average expression of each gene per cell type.
 
 
-```r
+``` r
 expression_info <- get_exprs_avg(seuratObj, "celltype",
                                  condition_colname = "aggregate",
                                  condition_oi = condition_oi,
@@ -1050,7 +1078,7 @@ expression_info <- get_exprs_avg(seuratObj, "celltype",
 (iii) Calculate DE between conditions.
 
 
-```r
+``` r
 condition_markers <- FindMarkers(object = seuratObj,
                                  ident.1 = condition_oi, ident.2 = condition_reference,
                                  group.by = "aggregate",
@@ -1063,7 +1091,7 @@ condition_markers <- rownames_to_column(condition_markers, "gene")
 (iv) Process the data frames from Steps (i)-(iii) to follow the same format.
 
 
-```r
+``` r
 processed_DE_table <- process_table_to_ic(
   DE_table,
   table_type = "celltype_DE",
@@ -1086,7 +1114,7 @@ processed_condition_markers <- process_table_to_ic(
 34. Generate the prioritization table containing rankings of cell-type-specific, ligand-receptor interactions. The "case_control" scenario sets all weights to one, while the "one_condition" scenario sets condition specificity to zero and the remaining weights to one.
 
 
-```r
+``` r
 prioritized_table <- generate_prioritization_tables(
   processed_expr_table,
   processed_DE_table,
@@ -1106,35 +1134,35 @@ prioritized_table <- generate_prioritization_tables(
 ## Joining with `by = join_by(receptor)`
 ```
 
-```r
+``` r
 # Preview
 dim(prioritized_table)
 ```
 
 ```
-## [1] 1272   51
+## [1] 1272   52
 ```
 
-```r
+``` r
 head(prioritized_table)
 ```
 
 ```
-## # A tibble: 6 × 51
+## # A tibble: 6 × 52
 ##   sender receiver ligand receptor lfc_ligand lfc_receptor ligand_receptor_lfc_…¹
 ##   <chr>  <chr>    <chr>  <chr>         <dbl>        <dbl>                  <dbl>
-## 1 NK     CD8 T    Ptprc  Dpp4          0.596        0.164                  0.380
-## 2 Mono   CD8 T    Ptprc  Dpp4          0.438        0.164                  0.301
-## 3 Mono   CD8 T    Cxcl10 Dpp4          4.27         0.164                  2.22 
-## 4 Mono   CD8 T    Cxcl9  Dpp4          4.33         0.164                  2.25 
-## 5 Treg   CD8 T    Ptprc  Dpp4          0.282        0.164                  0.223
-## 6 Mono   CD8 T    Cxcl11 Dpp4          2.36         0.164                  1.26 
+## 1 NK     CD8 T    Ptprc  Dpp4          0.642        0.299                  0.471
+## 2 Mono   CD8 T    Ptprc  Dpp4          0.474        0.299                  0.386
+## 3 Mono   CD8 T    Cxcl10 Dpp4          4.86         0.299                  2.58 
+## 4 Mono   CD8 T    Cxcl9  Dpp4          6.68         0.299                  3.49 
+## 5 Treg   CD8 T    Ptprc  Dpp4          0.307        0.299                  0.303
+## 6 Mono   CD8 T    Cxcl11 Dpp4          6.60         0.299                  3.45 
 ## # ℹ abbreviated name: ¹​ligand_receptor_lfc_avg
-## # ℹ 44 more variables: p_val_ligand <dbl>, p_adj_ligand <dbl>,
+## # ℹ 45 more variables: p_val_ligand <dbl>, p_adj_ligand <dbl>,
 ## #   p_val_receptor <dbl>, p_adj_receptor <dbl>, pct_expressed_sender <dbl>,
 ## #   pct_expressed_receiver <dbl>, avg_ligand <dbl>, avg_receptor <dbl>,
 ## #   ligand_receptor_prod <dbl>, lfc_pval_ligand <dbl>,
-## #   p_val_ligand_adapted <dbl>, scaled_lfc_ligand <dbl>,
+## #   p_val_adapted_ligand <dbl>, scaled_lfc_ligand <dbl>,
 ## #   scaled_p_val_ligand <dbl>, scaled_lfc_pval_ligand <dbl>, …
 ```
 
@@ -1148,7 +1176,7 @@ Users may provide custom weights in a named vector to the argument `prioritizing
 - `receptor_condition_specificity`: condition-specificity of the receptor across all cell types
 
 
-```r
+``` r
 prioritizing_weights <- c("de_ligand" = 1,
                          "de_receptor" = 1,
                          "activity_scaled" = 1,
@@ -1161,11 +1189,12 @@ prioritizing_weights <- c("de_ligand" = 1,
 35. Create a mushroom plot depicting ligand expression on one semicircle, and receptor expression on the other (Figure 3i).
 
 
-```r
+``` r
+prioritized_table$sender <- factor(prioritized_table$sender, levels = celltype_order)
 legend_adjust <- c(0.8, 0.7)
-make_mushroom_plot(prioritized_table, top_n = 30,
+make_mushroom_plot(prioritized_table,
+                   top_n = 30,
                    show_all_datapoints = TRUE,
-                   true_color_range = TRUE,
                    show_rankings = TRUE,
                    legend.title = element_text(size=8),
                    legend.text = element_text(size=8),
@@ -1183,7 +1212,7 @@ As the NicheNet prior model was constructed by integrating ligand-receptor, sign
 Note that the variable names of the networks have been changed from the manuscript in order to not overwrite the mouse networks, which will be used in Box 2.
 
 
-```r
+``` r
 zenodo_path <- "https://zenodo.org/record/7074291/files/"
 lr_network_human <- readRDS(url(paste0(zenodo_path, "lr_network_human_21122021.rds")))
 sig_network_human <- readRDS(url(paste0(zenodo_path, "signaling_network_human_21122021.rds")))
@@ -1195,21 +1224,21 @@ weighted_networks_box1 <- construct_weighted_networks(
   lr_network = lr_network_human,
   sig_network = sig_network_human,
   gr_network = gr_network_human,
-  source_weights_df = rename(optimized_source_weights_df, weight = avg_weight))
+  source_weights_df = rename(optimized_source_weights_df, weight = median_weight))
 
 # Downweigh the importance of signaling and gene regulatory hubs 
 # Use the optimized parameters of this 
 weighted_networks_box1 <- apply_hub_corrections(
   weighted_networks = weighted_networks_box1,
-  lr_sig_hub = hyperparameter_list[hyperparameter_list$parameter == "lr_sig_hub",]$avg_weight,
-  gr_hub = hyperparameter_list[hyperparameter_list$parameter == "gr_hub",]$avg_weight
+  lr_sig_hub = hyperparameter_list[hyperparameter_list$parameter == "lr_sig_hub",]$median_weight,
+  gr_hub = hyperparameter_list[hyperparameter_list$parameter == "gr_hub",]$median_weight
   ) 
 ```
 
 In this example, we will calculate target gene regulatory potential scores for TNF and the combination TNF+IL6. 
 
 
-```r
+``` r
 # To compute it for all 1248 ligands (~1 min):
 # ligands <- as.list(unique(lr_network$from))
 
@@ -1218,8 +1247,8 @@ ligand_target_matrix_box1 <- construct_ligand_target_matrix(
   weighted_networks = weighted_networks_box1,
   ligands = ligands,
   algorithm = "PPR",
-  damping_factor = hyperparameter_list[hyperparameter_list$parameter == "damping_factor",]$avg_weight,
-  ltf_cutoff = hyperparameter_list[hyperparameter_list$parameter == "ltf_cutoff",]$avg_weight
+  damping_factor = hyperparameter_list[hyperparameter_list$parameter == "damping_factor",]$median_weight,
+  ltf_cutoff = hyperparameter_list[hyperparameter_list$parameter == "ltf_cutoff",]$median_weight
   )
 ```
 
@@ -1234,7 +1263,7 @@ ligand_target_matrix_box1 <- construct_ligand_target_matrix(
 A frequent use case is one where users are interested in replacing the ligand-receptor network in NicheNet with those of expression permutation tools in order to make their results more comparable. To achieve this, we recommend employing LIANA (Dimitrov et al., 2022), a comprehensive CCC framework that integrates both resources and computational algorithms for ligand-receptor interaction inference. The `show_resources` function is used to check which resources are present in LIANA, and `select_resource` returns a data frame of the interactions in that resource. The `decomplexify` function of LIANA is necessary for this integration, as it separate receptors into their respective subunits. Note that unlike before, `source_weights_df` only represents unoptimized weights, where the weight of every data source is 1.
 
 
-```r
+``` r
 if (!requireNamespace("liana", quietly=TRUE))
   devtools::install_github("saezlab/liana")
 
@@ -1261,7 +1290,7 @@ weighted_networks_liana <- construct_weighted_networks(
 To streamline the NicheNet analysis, we introduce three wrapper functions that automate Steps 5-23. The function `nichenet_seuratobj_aggregate` calculates the gene set of interest as the DE genes between two conditions within the receiver cell type. This function can be used to replicate the analysis in this paper as follows:
 
 
-```r
+``` r
 nichenet_output <- nichenet_seuratobj_aggregate(
   seurat_obj = seuratObj,
   receiver = "CD8 T",
@@ -1275,6 +1304,7 @@ nichenet_output <- nichenet_seuratobj_aggregate(
 ```
 
 ```
+## [1] "The RNA assay will be used for the analysis."
 ## [1] "Read in and process NicheNet's networks"
 ## [1] "Define expressed ligands and receptors in receiver and sender cells"
 ## [1] "Perform DE analysis in receiver cell"
@@ -1284,7 +1314,7 @@ nichenet_output <- nichenet_seuratobj_aggregate(
 ## [1] "Perform DE analysis in sender cells"
 ```
 
-```r
+``` r
 # Preview
 names(nichenet_output)
 ```
@@ -1314,7 +1344,7 @@ The resulting object is a list comprising various components, including the gene
 Another wrapper function, `nichenet_seuratobj_cluster_de`, calculates DE genes between two cell types as the gene set of interest. Additionally, when filtering for potential ligands, we only consider expressed ligands whose receptors are expressed by the "reference" receiver cell type. This function should only be used for specific biological scenarios, as shown in Figure 2. An example of using this function for the scenario where cell types differentiation occurs due to its niche is as follows:
 
 
-```r
+``` r
 nichenet_seuratobj_cluster_de(
   seurat_obj = seurat_obj,
   receiver_affected = differentiated_celltype,
@@ -1331,7 +1361,7 @@ The final wrapper function, `nichenet_seuratobj_aggregate_cluster_de`, combines 
 We can assess the quality of prioritized ligands by constructing a random forest model built using the top 30 predicted ligands. The aim is to evaluate its ability to predict if a particular gene belongs to the target gene set. Using kfold cross-validation, 1/k of the target gene set is isolated as “unseen” data. The performance of the model can then be evaluated using classification metrics like AUPR and AUROC, or using Fisher’s exact test on the confusion matrix.  
 
 
-```r
+``` r
 # Define cross-validation folds and number of iterations
 k <- 3
 n <- 10
@@ -1352,16 +1382,16 @@ colMeans(performances_cv)
 
 ```
 ##                  auroc                   aupr         aupr_corrected 
-##              0.8037847              0.4955904              0.4209850 
+##              0.8039799              0.4917334              0.4168410 
 ##        sensitivity_roc        specificity_roc mean_rank_GST_log_pval 
-##              0.3759151              0.4278696            136.9676112 
+##              0.3771068              0.4268731            137.6103754 
 ##       pearson_log_pval      spearman_log_pval                pearson 
-##            262.4489418             61.5030547              0.5399001 
+##            259.2136361             61.8051044              0.5369676 
 ##               spearman 
-##              0.2765244
+##              0.2771908
 ```
 
-```r
+``` r
 # Calculate fraction of target genes and non-target genes
 # that are among the top 5% predicted targets
 fraction_cv <- bind_rows(lapply(predictions_list,
@@ -1375,18 +1405,18 @@ mean(filter(fraction_cv, true_target)$fraction_positive_predicted)
 ```
 
 ```
-## [1] 0.4488462
+## [1] 0.4440613
 ```
 
-```r
+``` r
 mean(filter(fraction_cv, !true_target)$fraction_positive_predicted)
 ```
 
 ```
-## [1] 0.01813953
+## [1] 0.0183933
 ```
 
-```r
+``` r
 # Perform Fischer's exact test
 lapply(predictions_list,
        calculate_fraction_top_predicted_fisher,
@@ -1395,37 +1425,37 @@ lapply(predictions_list,
 
 ```
 ## [[1]]
-## [1] 4.66469e-96
+## [1] 1.838238e-89
 ## 
 ## [[2]]
-## [1] 1.20294e-102
+## [1] 1.005756e-100
 ## 
 ## [[3]]
-## [1] 5.17928e-94
+## [1] 1.308498e-90
 ## 
 ## [[4]]
-## [1] 1.20294e-102
+## [1] 4.540699e-104
 ## 
 ## [[5]]
-## [1] 5.608708e-101
+## [1] 1.951475e-97
 ## 
 ## [[6]]
-## [1] 7.513216e-104
+## [1] 2.921251e-100
 ## 
 ## [[7]]
-## [1] 5.608708e-101
+## [1] 6.57518e-88
 ## 
 ## [[8]]
-## [1] 1.20294e-102
+## [1] 2.172985e-102
 ## 
 ## [[9]]
-## [1] 4.66469e-96
+## [1] 1.307296e-92
 ## 
 ## [[10]]
-## [1] 3.881505e-88
+## [1] 1.791574e-107
 ```
 
-```r
+``` r
 # Get which genes had the highest prediction values
 top_predicted_genes <- lapply(1:n, get_top_predicted_genes, predictions_list)
 top_predicted_genes <- reduce(top_predicted_genes, full_join, by = c("gene","true_target"))
@@ -1433,20 +1463,20 @@ top_predicted_genes
 ```
 
 ```
-## # A tibble: 241 × 12
-##    gene   true_target predicted_top_target_round1 predicted_top_target_round2
-##    <chr>  <lgl>       <lgl>                       <lgl>                      
-##  1 Gimap9 FALSE       TRUE                        TRUE                       
-##  2 H2-Q4  FALSE       TRUE                        TRUE                       
-##  3 Gbp4   TRUE        TRUE                        TRUE                       
-##  4 Gbp9   TRUE        TRUE                        TRUE                       
-##  5 Ifi203 TRUE        TRUE                        TRUE                       
-##  6 Ifi209 TRUE        TRUE                        TRUE                       
-##  7 Ifi213 TRUE        TRUE                        TRUE                       
-##  8 Ifi208 TRUE        TRUE                        TRUE                       
-##  9 Mndal  TRUE        TRUE                        TRUE                       
-## 10 Ifi206 TRUE        TRUE                        TRUE                       
-## # ℹ 231 more rows
+## # A tibble: 248 × 12
+##    gene    true_target predicted_top_target_round1 predicted_top_target_round2
+##    <chr>   <lgl>       <lgl>                       <lgl>                      
+##  1 Ifi203  TRUE        TRUE                        TRUE                       
+##  2 Ifi213  TRUE        TRUE                        TRUE                       
+##  3 Ifi206  TRUE        TRUE                        TRUE                       
+##  4 Gimap9  FALSE       TRUE                        TRUE                       
+##  5 Ly6c2   TRUE        TRUE                        TRUE                       
+##  6 Gbp8    TRUE        TRUE                        TRUE                       
+##  7 Trim12a FALSE       TRUE                        TRUE                       
+##  8 H2-Q4   FALSE       TRUE                        TRUE                       
+##  9 H2-Q6   TRUE        TRUE                        TRUE                       
+## 10 Ifi208  TRUE        TRUE                        TRUE                       
+## # ℹ 238 more rows
 ## # ℹ 8 more variables: predicted_top_target_round3 <lgl>,
 ## #   predicted_top_target_round4 <lgl>, predicted_top_target_round5 <lgl>,
 ## #   predicted_top_target_round6 <lgl>, predicted_top_target_round7 <lgl>,
@@ -1454,20 +1484,215 @@ top_predicted_genes
 ## #   predicted_top_target_round10 <lgl>
 ```
 
+## Box 4. Prioritization of ligand-receptor pairs for multiple receiver cell types
+
+
+``` r
+receiver_celltypes <- c("CD4 T", "CD8 T", "Treg")
+
+# Run NicheNet for each receiver cell type
+nichenet_outputs <- lapply(receiver_celltypes, function(receiver_ct){ 
+  output <- nichenet_seuratobj_aggregate(receiver = receiver_ct,
+                                         seurat_obj = seuratObj,
+                                         condition_colname = "aggregate",
+                                         condition_oi = condition_oi,
+                                         condition_reference = condition_reference,
+                                         sender = sender_celltypes,
+                                         ligand_target_matrix = ligand_target_matrix,
+                                         lr_network = lr_network,
+                                         weighted_networks = weighted_networks,
+                                         expression_pct = 0.05) 
+  # Add receiver cell type in ligand activity table
+  output$ligand_activities$receiver <- receiver_ct 
+  return(output) 
+}) 
+```
+
+```
+## [1] "The RNA assay will be used for the analysis."
+## [1] "Read in and process NicheNet's networks"
+## [1] "Define expressed ligands and receptors in receiver and sender cells"
+## [1] "Perform DE analysis in receiver cell"
+## [1] "Perform NicheNet ligand activity analysis"
+## [1] "Infer active target genes of the prioritized ligands"
+## [1] "Infer receptors of the prioritized ligands"
+## [1] "Perform DE analysis in sender cells"
+## [1] "The RNA assay will be used for the analysis."
+## [1] "Read in and process NicheNet's networks"
+## [1] "Define expressed ligands and receptors in receiver and sender cells"
+## [1] "Perform DE analysis in receiver cell"
+## [1] "Perform NicheNet ligand activity analysis"
+## [1] "Infer active target genes of the prioritized ligands"
+## [1] "Infer receptors of the prioritized ligands"
+## [1] "Perform DE analysis in sender cells"
+## [1] "The RNA assay will be used for the analysis."
+## [1] "Read in and process NicheNet's networks"
+## [1] "Define expressed ligands and receptors in receiver and sender cells"
+## [1] "Perform DE analysis in receiver cell"
+## [1] "Perform NicheNet ligand activity analysis"
+## [1] "Infer active target genes of the prioritized ligands"
+## [1] "Infer receptors of the prioritized ligands"
+## [1] "Perform DE analysis in sender cells"
+```
+
+``` r
+# Calculate prioritization criteria for each receiver cell type
+info_tables <- lapply(nichenet_outputs, function(output) {
+  lr_network_filtered <-  filter(lr_network[, c("from", "to")],
+                                 from %in% output$ligand_activities$test_ligand & 
+                                 to %in% output$background_expressed_genes) 
+  
+  generate_info_tables(seuratObj, 
+                       celltype_colname = "celltype", 
+                       senders_oi = sender_celltypes, 
+                       receivers_oi = unique(output$ligand_activities$receiver), 
+                       lr_network_filtered = lr_network_filtered, 
+                       condition_colname = "aggregate", 
+                       condition_oi = condition_oi, 
+                       condition_reference = condition_reference, 
+                       scenario = "case_control") 
+})
+```
+
+```
+## condition_* is given. Only cells from that condition will be considered in cell type specificity calculation.
+```
+
+```
+## Calculating cluster CD8 T
+```
+
+```
+## Calculating cluster CD4 T
+```
+
+```
+## Calculating cluster B
+```
+
+```
+## Calculating cluster Treg
+```
+
+```
+## Calculating cluster NK
+```
+
+```
+## Calculating cluster Mono
+```
+
+```
+## Calculating cluster DC
+```
+
+```
+## condition_* is given. Only cells from that condition will be considered in cell type specificity calculation.
+```
+
+```
+## Calculating cluster CD8 T
+```
+
+```
+## Calculating cluster CD4 T
+```
+
+```
+## Calculating cluster B
+```
+
+```
+## Calculating cluster Treg
+```
+
+```
+## Calculating cluster NK
+```
+
+```
+## Calculating cluster Mono
+```
+
+```
+## Calculating cluster DC
+```
+
+```
+## condition_* is given. Only cells from that condition will be considered in cell type specificity calculation.
+```
+
+```
+## Calculating cluster CD8 T
+```
+
+```
+## Calculating cluster CD4 T
+```
+
+```
+## Calculating cluster B
+```
+
+```
+## Calculating cluster Treg
+```
+
+```
+## Calculating cluster NK
+```
+
+```
+## Calculating cluster Mono
+```
+
+```
+## Calculating cluster DC
+```
+
+``` r
+# Combine the tables
+info_tables_combined <- purrr::pmap(info_tables, bind_rows)
+ligand_activities_combined <- purrr::map_dfr(nichenet_outputs, "ligand_activities")
+
+# Calculate the prioritization table based on the combined tables
+prior_table_combined <- generate_prioritization_tables(
+  sender_receiver_info = distinct(info_tables_combined$sender_receiver_info), 
+  sender_receiver_de = info_tables_combined$sender_receiver_de,
+  ligand_activities = ligand_activities_combined, 
+  lr_condition_de = distinct(info_tables_combined$lr_condition_de),
+  scenario = "case_control") 
+```
+
+```
+## Joining with `by = join_by(sender, receiver, ligand, receptor)`
+```
+
+```
+## Joining with `by = join_by(sender, ligand, lfc_ligand, p_val_ligand)`
+## Joining with `by = join_by(receiver, ligand)`
+## Joining with `by = join_by(receiver, receptor, lfc_receptor, p_val_receptor)`
+## Joining with `by = join_by(sender, ligand, avg_ligand)`
+## Joining with `by = join_by(receiver, receptor, avg_receptor)`
+## Joining with `by = join_by(ligand)`
+## Joining with `by = join_by(receptor)`
+```
+
+
 What packages did I use?
 
 
-```r
+``` r
 sessionInfo()
 ```
 
 ```
-## R version 4.3.2 (2023-10-31)
-## Platform: x86_64-redhat-linux-gnu (64-bit)
+## R version 4.3.3 (2024-02-29)
+## Platform: x86_64-pc-linux-gnu (64-bit)
 ## Running under: CentOS Stream 8
 ## 
 ## Matrix products: default
-## BLAS/LAPACK: /usr/lib64/libopenblaso-r0.3.15.so;  LAPACK version 3.9.0
+## BLAS/LAPACK: /usr/lib64/libopenblasp-r0.3.15.so;  LAPACK version 3.9.0
 ## 
 ## locale:
 ##  [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C              
@@ -1484,123 +1709,122 @@ sessionInfo()
 ## [1] stats     graphics  grDevices utils     datasets  methods   base     
 ## 
 ## other attached packages:
-##  [1] forcats_1.0.0      stringr_1.5.0      dplyr_1.1.4        purrr_1.0.2       
-##  [5] readr_2.1.2        tidyr_1.3.0        tibble_3.2.1       ggplot2_3.4.4     
-##  [9] tidyverse_1.3.1    SeuratObject_5.0.1 Seurat_4.4.0       nichenetr_2.1.0   
+##  [1] lubridate_1.9.3    forcats_1.0.0      stringr_1.5.1      dplyr_1.1.4       
+##  [5] purrr_1.0.2        readr_2.1.5        tidyr_1.3.1        tibble_3.2.1      
+##  [9] ggplot2_3.5.1      tidyverse_2.0.0    Seurat_5.1.0       SeuratObject_5.0.2
+## [13] sp_2.1-4           nichenetr_2.1.7   
 ## 
 ## loaded via a namespace (and not attached):
-##   [1] IRanges_2.34.1              progress_1.2.3             
-##   [3] nnet_7.3-19                 goftest_1.2-3              
-##   [5] vctrs_0.6.5                 spatstat.random_3.2-2      
-##   [7] digest_0.6.33               png_0.1-8                  
-##   [9] shape_1.4.6                 proxy_0.4-27               
-##  [11] OmnipathR_3.9.6             ggrepel_0.9.4              
-##  [13] deldir_2.0-2                parallelly_1.36.0          
-##  [15] MASS_7.3-60                 reprex_2.0.1               
-##  [17] reshape2_1.4.4              httpuv_1.6.13              
-##  [19] foreach_1.5.2               BiocGenerics_0.46.0        
-##  [21] withr_2.5.2                 xfun_0.41                  
-##  [23] ggpubr_0.6.0                ellipsis_0.3.2             
-##  [25] survival_3.5-7              memoise_2.0.1              
-##  [27] zoo_1.8-12                  GlobalOptions_0.1.2        
-##  [29] V8_4.3.3                    pbapply_1.7-2              
-##  [31] Formula_1.2-5               prettyunits_1.2.0          
-##  [33] promises_1.2.1              httr_1.4.7                 
-##  [35] rstatix_0.7.2               globals_0.16.2             
-##  [37] fitdistrplus_1.1-11         rstudioapi_0.15.0          
-##  [39] miniUI_0.1.1.1              generics_0.1.3             
-##  [41] base64enc_0.1-3             dir.expiry_1.8.0           
-##  [43] curl_5.2.0                  S4Vectors_0.38.1           
-##  [45] zlibbioc_1.46.0             ScaledMatrix_1.8.1         
-##  [47] polyclip_1.10-6             randomForest_4.7-1.1       
-##  [49] GenomeInfoDbData_1.2.10     xtable_1.8-4               
-##  [51] doParallel_1.0.17           evaluate_0.23              
-##  [53] S4Arrays_1.2.0              hms_1.1.3                  
-##  [55] GenomicRanges_1.52.0        irlba_2.3.5.1              
-##  [57] colorspace_2.1-0            filelock_1.0.2             
-##  [59] visNetwork_2.1.2            ROCR_1.0-11                
-##  [61] reticulate_1.34.0           readxl_1.4.3               
-##  [63] spatstat.data_3.0-3         magrittr_2.0.3             
-##  [65] lmtest_0.9-40               later_1.3.2                
-##  [67] lattice_0.21-9              spatstat.geom_3.2-7        
-##  [69] future.apply_1.11.0         scattermore_1.2            
-##  [71] scuttle_1.10.2              shadowtext_0.1.2           
-##  [73] cowplot_1.1.2               matrixStats_1.2.0          
-##  [75] RcppAnnoy_0.0.21            class_7.3-22               
-##  [77] Hmisc_5.1-0                 pillar_1.9.0               
-##  [79] nlme_3.1-163                iterators_1.0.14           
-##  [81] caTools_1.18.2              compiler_4.3.2             
-##  [83] beachmat_2.16.0             stringi_1.7.6              
-##  [85] gower_1.0.1                 tensor_1.5                 
-##  [87] SummarizedExperiment_1.30.2 lubridate_1.9.3            
-##  [89] devtools_2.4.3              plyr_1.8.9                 
-##  [91] crayon_1.5.2                abind_1.4-5                
-##  [93] locfit_1.5-9.8              haven_2.4.3                
-##  [95] sp_2.1-2                    modelr_0.1.8               
-##  [97] codetools_0.2-19            recipes_1.0.7              
-##  [99] BiocSingular_1.16.0         bslib_0.6.1                
-## [101] e1071_1.7-14                GetoptLong_1.0.5           
-## [103] plotly_4.10.0               mime_0.12                  
-## [105] splines_4.3.2               circlize_0.4.15            
-## [107] DiagrammeRsvg_0.1           Rcpp_1.0.11                
-## [109] basilisk_1.12.1             dbplyr_2.1.1               
-## [111] sparseMatrixStats_1.12.2    cellranger_1.1.0           
-## [113] knitr_1.45                  utf8_1.2.4                 
-## [115] clue_0.3-64                 fs_1.6.3                   
-## [117] listenv_0.9.0               checkmate_2.3.1            
-## [119] DelayedMatrixStats_1.22.5   logger_0.2.2               
-## [121] pkgbuild_1.4.3              ggsignif_0.6.4             
-## [123] Matrix_1.6-4                statmod_1.5.0              
-## [125] tzdb_0.4.0                  tweenr_2.0.2               
-## [127] pkgconfig_2.0.3             tools_4.3.2                
-## [129] cachem_1.0.8                viridisLite_0.4.2          
-## [131] rvest_1.0.2                 DBI_1.1.3                  
-## [133] fastmap_1.1.1               rmarkdown_2.11             
-## [135] scales_1.3.0                grid_4.3.2                 
-## [137] usethis_2.2.2               ica_1.0-3                  
-## [139] liana_0.1.13                broom_0.7.12               
-## [141] sass_0.4.8                  patchwork_1.1.3            
-## [143] dotCall64_1.1-1             carData_3.0-5              
-## [145] RANN_2.6.1                  rpart_4.1.21               
-## [147] farver_2.1.1                yaml_2.3.8                 
-## [149] MatrixGenerics_1.12.3       DiagrammeR_1.0.10          
-## [151] foreign_0.8-85              cli_3.6.2                  
-## [153] stats4_4.3.2                leiden_0.3.9               
-## [155] lifecycle_1.0.4             caret_6.0-94               
-## [157] uwot_0.1.16                 Biobase_2.60.0             
-## [159] bluster_1.10.0              lava_1.7.3                 
-## [161] sessioninfo_1.2.2           backports_1.4.1            
-## [163] BiocParallel_1.34.2         timechange_0.2.0           
-## [165] gtable_0.3.4                rjson_0.2.21               
-## [167] ggridges_0.5.5              progressr_0.14.0           
-## [169] parallel_4.3.2              pROC_1.18.5                
-## [171] limma_3.56.2                jsonlite_1.8.8             
-## [173] edgeR_3.42.4                bitops_1.0-7               
-## [175] assertthat_0.2.1            Rtsne_0.17                 
-## [177] spatstat.utils_3.0-4        BiocNeighbors_1.18.0       
-## [179] jquerylib_0.1.4             highr_0.10                 
-## [181] metapod_1.8.0               dqrng_0.3.2                
-## [183] timeDate_4032.109           lazyeval_0.2.2             
-## [185] shiny_1.7.1                 htmltools_0.5.7            
-## [187] sctransform_0.4.0           rappdirs_0.3.3             
-## [189] basilisk.utils_1.12.1       glue_1.6.2                 
-## [191] spam_2.10-0                 XVector_0.40.0             
-## [193] RCurl_1.98-1.12             scran_1.28.2               
-## [195] gridExtra_2.3               igraph_1.2.11              
-## [197] R6_2.5.1                    SingleCellExperiment_1.22.0
-## [199] fdrtool_1.2.17              labeling_0.4.3             
-## [201] cluster_2.1.4               pkgload_1.3.3              
-## [203] GenomeInfoDb_1.36.1         ipred_0.9-14               
-## [205] DelayedArray_0.26.7         tidyselect_1.2.0           
-## [207] htmlTable_2.4.1             ggforce_0.4.1              
-## [209] xml2_1.3.6                  car_3.1-2                  
-## [211] future_1.33.0               ModelMetrics_1.2.2.2       
-## [213] rsvd_1.0.5                  munsell_0.5.0              
-## [215] KernSmooth_2.23-22          data.table_1.14.10         
-## [217] htmlwidgets_1.6.2           ComplexHeatmap_2.16.0      
-## [219] RColorBrewer_1.1-3          rlang_1.1.2                
-## [221] spatstat.sparse_3.0-3       spatstat.explore_3.2-1     
-## [223] remotes_2.4.2               ggnewscale_0.4.9           
-## [225] fansi_1.0.6                 hardhat_1.3.0              
-## [227] prodlim_2023.08.28
+##   [1] fs_1.6.4                    matrixStats_1.3.0          
+##   [3] spatstat.sparse_3.0-3       bitops_1.0-7               
+##   [5] devtools_2.4.5              httr_1.4.7                 
+##   [7] RColorBrewer_1.1-3          doParallel_1.0.17          
+##   [9] profvis_0.3.8               tools_4.3.3                
+##  [11] sctransform_0.4.1           backports_1.4.1            
+##  [13] utf8_1.2.4                  R6_2.5.1                   
+##  [15] lazyeval_0.2.2              uwot_0.2.2                 
+##  [17] GetoptLong_1.0.5            urlchecker_1.0.1           
+##  [19] withr_3.0.0                 prettyunits_1.2.0          
+##  [21] gridExtra_2.3               fdrtool_1.2.17             
+##  [23] progressr_0.14.0            Biobase_2.60.0             
+##  [25] cli_3.6.2                   spatstat.explore_3.2-7     
+##  [27] fastDummies_1.7.3           labeling_0.4.3             
+##  [29] sass_0.4.9                  spatstat.data_3.0-4        
+##  [31] randomForest_4.7-1.1        proxy_0.4-27               
+##  [33] ggridges_0.5.6              pbapply_1.7-2              
+##  [35] foreign_0.8-86              parallelly_1.37.1          
+##  [37] sessioninfo_1.2.2           limma_3.58.1               
+##  [39] readxl_1.4.3                rstudioapi_0.16.0          
+##  [41] visNetwork_2.1.2            generics_0.1.3             
+##  [43] shape_1.4.6.1               ica_1.0-3                  
+##  [45] spatstat.random_3.2-3       car_3.1-2                  
+##  [47] Matrix_1.6-5                fansi_1.0.6                
+##  [49] S4Vectors_0.40.2            logger_0.3.0               
+##  [51] abind_1.4-5                 lifecycle_1.0.4            
+##  [53] edgeR_3.42.4                yaml_2.3.8                 
+##  [55] carData_3.0-5               SummarizedExperiment_1.32.0
+##  [57] SparseArray_1.2.4           recipes_1.0.10             
+##  [59] Rtsne_0.17                  grid_4.3.3                 
+##  [61] dqrng_0.4.0                 promises_1.3.0             
+##  [63] crayon_1.5.2                dir.expiry_1.8.0           
+##  [65] miniUI_0.1.1.1              lattice_0.22-5             
+##  [67] beachmat_2.16.0             cowplot_1.1.3              
+##  [69] metapod_1.8.0               pillar_1.9.0               
+##  [71] knitr_1.46                  ComplexHeatmap_2.18.0      
+##  [73] GenomicRanges_1.54.1        rjson_0.2.21               
+##  [75] future.apply_1.11.2         codetools_0.2-19           
+##  [77] leiden_0.4.3.1              glue_1.7.0                 
+##  [79] data.table_1.15.4           remotes_2.5.0              
+##  [81] vctrs_0.6.5                 png_0.1-8                  
+##  [83] spam_2.10-0                 cellranger_1.1.0           
+##  [85] gtable_0.3.5                cachem_1.1.0               
+##  [87] OmnipathR_3.11.16           gower_1.0.1                
+##  [89] xfun_0.44                   S4Arrays_1.2.1             
+##  [91] mime_0.12                   prodlim_2023.08.28         
+##  [93] liana_0.1.13                survival_3.5-8             
+##  [95] timeDate_4032.109           SingleCellExperiment_1.24.0
+##  [97] iterators_1.0.14            hardhat_1.3.1              
+##  [99] lava_1.8.0                  bluster_1.10.0             
+## [101] statmod_1.5.0               DiagrammeR_1.0.11          
+## [103] ellipsis_0.3.2              fitdistrplus_1.1-11        
+## [105] ROCR_1.0-11                 ipred_0.9-14               
+## [107] nlme_3.1-164                usethis_2.2.3              
+## [109] progress_1.2.3              filelock_1.0.3             
+## [111] RcppAnnoy_0.0.22            GenomeInfoDb_1.36.4        
+## [113] bslib_0.7.0                 irlba_2.3.5.1              
+## [115] KernSmooth_2.23-22          rpart_4.1.23               
+## [117] colorspace_2.1-0            BiocGenerics_0.48.1        
+## [119] Hmisc_5.1-2                 nnet_7.3-19                
+## [121] tidyselect_1.2.1            curl_5.2.1                 
+## [123] compiler_4.3.3              rvest_1.0.4                
+## [125] BiocNeighbors_1.18.0        htmlTable_2.4.2            
+## [127] basilisk.utils_1.17.0       xml2_1.3.6                 
+## [129] DelayedArray_0.28.0         plotly_4.10.4              
+## [131] shadowtext_0.1.3            checkmate_2.3.1            
+## [133] scales_1.3.0                caTools_1.18.2             
+## [135] lmtest_0.9-40               rappdirs_0.3.3             
+## [137] digest_0.6.35               goftest_1.2-3              
+## [139] spatstat.utils_3.0-4        presto_1.0.0               
+## [141] rmarkdown_2.27              basilisk_1.15.2004         
+## [143] XVector_0.40.0              htmltools_0.5.8.1          
+## [145] pkgconfig_2.0.3             base64enc_0.1-3            
+## [147] sparseMatrixStats_1.12.2    MatrixGenerics_1.12.3      
+## [149] highr_0.10                  fastmap_1.2.0              
+## [151] rlang_1.1.3                 GlobalOptions_0.1.2        
+## [153] htmlwidgets_1.6.4           DelayedMatrixStats_1.22.6  
+## [155] shiny_1.8.1.1               farver_2.1.2               
+## [157] jquerylib_0.1.4             zoo_1.8-12                 
+## [159] jsonlite_1.8.8              BiocParallel_1.34.2        
+## [161] ModelMetrics_1.2.2.2        BiocSingular_1.16.0        
+## [163] RCurl_1.98-1.14             magrittr_2.0.3             
+## [165] scuttle_1.10.3              GenomeInfoDbData_1.2.10    
+## [167] Formula_1.2-5               dotCall64_1.1-1            
+## [169] patchwork_1.2.0             munsell_0.5.1              
+## [171] Rcpp_1.0.12                 ggnewscale_0.4.10          
+## [173] reticulate_1.37.0           stringi_1.8.4              
+## [175] pROC_1.18.5                 zlibbioc_1.46.0            
+## [177] MASS_7.3-60.0.1             plyr_1.8.9                 
+## [179] pkgbuild_1.4.4              parallel_4.3.3             
+## [181] listenv_0.9.1               ggrepel_0.9.5              
+## [183] deldir_2.0-4                splines_4.3.3              
+## [185] tensor_1.5                  hms_1.1.3                  
+## [187] circlize_0.4.16             locfit_1.5-9.9             
+## [189] ggpubr_0.6.0                igraph_2.0.3               
+## [191] spatstat.geom_3.2-9         ggsignif_0.6.4             
+## [193] RcppHNSW_0.6.0              ScaledMatrix_1.8.1         
+## [195] reshape2_1.4.4              stats4_4.3.3               
+## [197] pkgload_1.3.4               evaluate_0.23              
+## [199] scran_1.28.2                tzdb_0.4.0                 
+## [201] foreach_1.5.2               tweenr_2.0.3               
+## [203] httpuv_1.6.15               RANN_2.6.1                 
+## [205] polyclip_1.10-6             future_1.33.2              
+## [207] clue_0.3-65                 scattermore_1.2            
+## [209] ggforce_0.4.2               rsvd_1.0.5                 
+## [211] broom_1.0.5                 xtable_1.8-4               
+## [213] e1071_1.7-14                RSpectra_0.16-1            
+## [215] rstatix_0.7.2               later_1.3.2                
+## [217] viridisLite_0.4.2           class_7.3-22               
+## [219] memoise_2.0.1               IRanges_2.36.0             
+## [221] cluster_2.1.6               timechange_0.3.0           
+## [223] globals_0.16.3              caret_6.0-94
 ```
