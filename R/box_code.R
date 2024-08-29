@@ -12,16 +12,17 @@ weighted_networks <- construct_weighted_networks(
   lr_network = lr_network,
   sig_network = sig_network,
   gr_network = gr_network,
-  source_weights_df = optimized_source_weights_df)
+  source_weights_df = rename(optimized_source_weights_df,
+                             weight = median_weight))
 
 # Downweigh the importance of signaling and gene regulatory hubs
 # Use the optimized parameters of this
 weighted_networks <- apply_hub_corrections(
   weighted_networks = weighted_networks,
   lr_sig_hub = hyperparameter_list[
-    hyperparameter_list$parameter == "lr_sig_hub",]$avg_weight,
+    hyperparameter_list$parameter == "lr_sig_hub",]$median_weight,
   gr_hub = hyperparameter_list[
-    hyperparameter_list$parameter == "gr_hub",]$avg_weight)
+    hyperparameter_list$parameter == "gr_hub",]$median_weight)
 
 # In this example, we will calculate target gene regulatory potential scores for
 # TNF and the combination TNF+IL6
@@ -33,9 +34,9 @@ ligand_target_matrix = construct_ligand_target_matrix(
   ligands = ligands,
   algorithm = "PPR",
   damping_factor = hyperparameter_list[
-    hyperparameter_list$parameter == "damping_factor",]$avg_weight,
+    hyperparameter_list$parameter == "damping_factor",]$median_weight,
   ltf_cutoff = hyperparameter_list[
-    hyperparameter_list$parameter == "ltf_cutoff",]$avg_weight)
+    hyperparameter_list$parameter == "ltf_cutoff",]$median_weight)
 
 # Using LIANA
 devtools::install_github("saezlab/liana")
