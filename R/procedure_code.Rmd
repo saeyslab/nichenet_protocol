@@ -303,7 +303,7 @@ dim(ligand_activities)
 head(ligand_activities)
 ```
 
-14. Obtain the names of the top 30 ligands. Box 3 describes a method for assessing the quality of predicted ligands. 
+14. Obtain the names of the top 30 ligands.
 
 ```{r ligand activity - III}
 
@@ -314,7 +314,9 @@ length(best_upstream_ligands)
 head(best_upstream_ligands)
 ```
 
-15. Infer which genes in the gene set of interest have the highest regulatory potential for each top-ranked ligand. The function get_weighted_ligand_target_links will return genes that are in the gene set of interest and are the top `n` targets of a ligand (default: `n = 200`).
+15. Assess the quality of predicted ligands according to Box 4. 
+
+16. Infer which genes in the gene set of interest have the highest regulatory potential for each top-ranked ligand. The function get_weighted_ligand_target_links will return genes that are in the gene set of interest and are the top `n` targets of a ligand (default: `n = 200`).
 
 ```{r ligand activity - IV}
 
@@ -331,7 +333,7 @@ dim(active_ligand_target_links_df)
 head(active_ligand_target_links_df)
 ```
 
-16. Similarly, identify which receptors have the highest interaction potential with the top-ranked ligands.
+17. Similarly, identify which receptors have the highest interaction potential with the top-ranked ligands.
 
 ```{r ligand activity - V}
 
@@ -347,49 +349,9 @@ head(ligand_receptor_links_df)
 
 ## Visualizations
 
-Visualizations covered in this section include: heatmaps of ligand-target regulatory potential (Steps 17-18), ligand-receptor interaction potential (Step 19), ligand activity (Step 20), and log-fold change of ligands between treatment conditions (Steps 21-22); a dot plot of cell type expression and percentage (Step 23); a line plot comparing ligand rankings between the sender-agnostic and -focused approach (Step 24); chord diagrams (Steps 25-29); and a signaling graph (Steps 30-31). This section can be followed in its entirety only for the sender-focused approach (i.e., if all optional code in the previous sections have been executed); for the sender-agnostic approach, only Steps 17-20 and Steps 30-31 are relevant.
+Visualizations covered in this section include: heatmaps of ligand activity (Step 18), ligand-target regulatory potential (Steps 19-20), ligand-receptor interaction potential (Step 21), and log-fold change of ligands between treatment conditions (Steps 22-23); a dot plot of cell type expression and percentage (Step 24); a line plot comparing ligand rankings between the sender-agnostic and -focused approach (Step 25); chord diagrams (Steps 26-30); and a signaling graph (Steps 31-32). This section can be followed in its entirety only for the sender-focused approach (i.e., if all optional code in the previous sections have been executed); for the sender-agnostic approach, only Steps 18-21 and Steps 31-32 are relevant.
 
-17. Prepare the weighted ligand-target data frame for visualization by transforming it into matrix. By default, regulatory potentials lower than the 25th percentile are set to zero for visualization clarity. This cutoff parameter can freely be tuned by the user.
-
-```{r visualizations-I}
-
-active_ligand_target_links <- prepare_ligand_target_visualization(
-  ligand_target_df = active_ligand_target_links_df,
-  ligand_target_matrix = ligand_target_matrix,
-  cutoff = 0.25) 
-
-```
-
-18. Order the rows to follow the rankings of the ligands, and the columns alphabetically (Figure 3a).
-
-```{r visualizations-II}
-
-order_ligands <- rev(intersect(best_upstream_ligands, colnames(active_ligand_target_links))) 
-order_targets <- intersect(unique(active_ligand_target_links_df$target), rownames(active_ligand_target_links)) 
-
-vis_ligand_target <- t(active_ligand_target_links[order_targets,order_ligands])
-
-(make_heatmap_ggplot(vis_ligand_target, y_name = "Prioritized ligands", x_name = "Predicted target genes",
-                     color = "purple", legend_title = "Regulatory potential") + 
-    scale_fill_gradient2(low = "whitesmoke",  high = "purple")) 
-
-```
-
-19. Create a heatmap for ligand-receptor interactions (Figure 3b).
-
-```{r visualizations-III}
-
-vis_ligand_receptor_network <- prepare_ligand_receptor_visualization(
-  ligand_receptor_links_df, best_upstream_ligands,
-  order_hclust = "receptors") 
-
-(make_heatmap_ggplot(t(vis_ligand_receptor_network), 
-                     y_name = "Ligands", x_name = "Receptors",  
-                     color = "mediumvioletred", legend_title = "Prior interaction potential")) 
- 
-```
-
-20. Create a heatmap of the ligand activity measure (Figure 3c).
+18. Create a heatmap of the ligand activity measure (Figure 3a).
 
 ```{r visualizations-IV}
 
@@ -404,7 +366,48 @@ vis_ligand_aupr <- as.matrix(ligand_aupr_matrix, ncol = 1)
 
 ```
 
-21. For each cell type, compute the log-fold change of the top-ranked ligands between treatment conditions.
+
+19. Prepare the weighted ligand-target data frame for visualization by transforming it into matrix. By default, regulatory potentials lower than the 25th percentile are set to zero for visualization clarity. This cutoff parameter can freely be tuned by the user.
+
+```{r visualizations-I}
+
+active_ligand_target_links <- prepare_ligand_target_visualization(
+  ligand_target_df = active_ligand_target_links_df,
+  ligand_target_matrix = ligand_target_matrix,
+  cutoff = 0.25) 
+
+```
+
+20. Order the rows to follow the rankings of the ligands, and the columns alphabetically (Figure 3b).
+
+```{r visualizations-II}
+
+order_ligands <- rev(intersect(best_upstream_ligands, colnames(active_ligand_target_links))) 
+order_targets <- intersect(unique(active_ligand_target_links_df$target), rownames(active_ligand_target_links)) 
+
+vis_ligand_target <- t(active_ligand_target_links[order_targets,order_ligands])
+
+(make_heatmap_ggplot(vis_ligand_target, y_name = "Prioritized ligands", x_name = "Predicted target genes",
+                     color = "purple", legend_title = "Regulatory potential") + 
+    scale_fill_gradient2(low = "whitesmoke",  high = "purple")) 
+
+```
+
+21. Create a heatmap for ligand-receptor interactions (Figure 3c).
+
+```{r visualizations-III}
+
+vis_ligand_receptor_network <- prepare_ligand_receptor_visualization(
+  ligand_receptor_links_df, best_upstream_ligands,
+  order_hclust = "receptors") 
+
+(make_heatmap_ggplot(t(vis_ligand_receptor_network), 
+                     y_name = "Prioritized ligands", x_name = "Receptors",  
+                     color = "mediumvioletred", legend_title = "Prior interaction potential")) 
+ 
+```
+
+22. For each cell type, compute the log-fold change of the top-ranked ligands between treatment conditions.
 
 ```{r visualizations-V}
 
@@ -427,7 +430,7 @@ DE_table_top_ligands <- column_to_rownames(DE_table_top_ligands, "gene")
  
 ```
 
-22. Create the heatmap (Figure 3d).
+23. Create the heatmap (Figure 3d).
 
 ```{r visualizations-VI}
 
@@ -441,7 +444,7 @@ vis_ligand_lfc <- as.matrix(DE_table_top_ligands[rev(best_upstream_ligands), , d
  
 ```
 
-23. Create a dot plot showing the average expression of ligands per cell type, as well as the percentage of cells from the cell type expressing the ligands (Figure 3e).
+24. Create a dot plot showing the average expression of ligands per cell type, as well as the percentage of cells from the cell type expressing the ligands (Figure 3e).
 
 ```{r visualizations-VII}
 
@@ -452,7 +455,7 @@ DotPlot(subset(seuratObj, celltype %in% sender_celltypes),
 
 ```
 
-24. *(Optional)* Create a line plot comparing the rankings between the sender-agnostic and sender-focused approach (Figure 3f).
+25. *(Optional)* Create a line plot comparing the rankings between the sender-agnostic and sender-focused approach (Figure 3f).
 
 ```{r visualizations-VIII}
 
@@ -462,7 +465,7 @@ DotPlot(subset(seuratObj, celltype %in% sender_celltypes),
 
 ```
 
-25. To create a ligand-target chord diagram, assign each ligand to a specific cell type. A ligand is only assigned to a cell type if that cell type is the only one to show an average expression of that ligand that is higher than the mean + one standard deviation across all cell types. Otherwise, it is assigned to "General".
+26. To create a ligand-target chord diagram, assign each ligand to a specific cell type. A ligand is only assigned to a cell type if that cell type is the only one to show an average expression of that ligand that is higher than the mean + one standard deviation across all cell types. Otherwise, it is assigned to "General".
 
 ```{r visualizations-IX}
 
@@ -475,7 +478,7 @@ head(ligand_type_indication_df)
 ```
 
 
-26. Using the weighted ligand-target data frame from Step 15, group target genes and filter out the lowest 40% of the regulatory potentials. In this case, there is only one grouping of target genes (DE genes after LCMV infection), but users can define multiple target gene groups if applicable. In case the resulting chord diagram is still overcrowded, users may adjust the `cutoff` parameter to filter out even more ligand-target links.
+27. Using the weighted ligand-target data frame from Step 15, group target genes and filter out the lowest 40% of the regulatory potentials. In this case, there is only one grouping of target genes (DE genes after LCMV infection), but users can define multiple target gene groups if applicable. In case the resulting chord diagram is still overcrowded, users may adjust the `cutoff` parameter to filter out even more ligand-target links.
 
 ```{r visualizations-X}
 
@@ -489,7 +492,7 @@ head(circos_links)
 
 ```
 
-27. Assign colors to cell types and target gene groups. Then, prepare the data frame for visualization: the function assigns colors to ligands and targets and calculates gaps between sectors of the chord diagram.
+28. Assign colors to cell types and target gene groups. Then, prepare the data frame for visualization: the function assigns colors to ligands and targets and calculates gaps between sectors of the chord diagram.
 
 ```{r visualizations-XI}
 
@@ -504,7 +507,7 @@ vis_circos_obj <- prepare_circos_visualization(circos_links,
 
 ```
 
-28. Draw the chord diagram (Figure 3g).
+29. Draw the chord diagram (Figure 3g).
 
 ```{r visualizations-XII, fig.width=10}
 
@@ -512,7 +515,7 @@ make_circos_plot(vis_circos_obj, transparency = FALSE,  args.circos.text = list(
 
 ```
 
-29. To create a ligand-receptor chord diagram, perform Steps 26-28 using the weighted ligand-receptor data frame from Step 16. As `prepare_circos_visualization` accesses "target" and "target_type" columns, it is necessary to rename the columns accordingly even though the data frame contains receptor and not target gene information. When drawing the plot, the argument `link.visible` = TRUE is also necessary for making all links visible, since no cutoff is used to filter out ligand-receptor interactions.
+30. To create a ligand-receptor chord diagram, perform Steps 26-28 using the weighted ligand-receptor data frame from Step 16. As `prepare_circos_visualization` accesses "target" and "target_type" columns, it is necessary to rename the columns accordingly even though the data frame contains receptor and not target gene information. When drawing the plot, the argument `link.visible` = TRUE is also necessary for making all links visible, since no cutoff is used to filter out ligand-receptor interactions.
 
 ```{r visualizations-XIII}
 
@@ -530,7 +533,7 @@ make_circos_plot(vis_circos_receptor_obj, transparency = TRUE,
 
 ```
 
-30. To create a signaling graph, first download the ligand-transcription factor matrix. Then, extract the most highly weighted paths from the ligand to the target genes of interest. The number of regulators that are extracted can be adjusted using `top_n_regulators`. By setting `minmax_scaling = TRUE`, we perform min-max scaling to make the weights between the signaling and gene regulatory network more comparable. Additionally, it is possible to check which data sources support the inferred pathway by using the function `infer_supporting_datasources`. This would require separate signaling and gene regulatory networks as input (see Box 1 for code to download these networks).
+31. To create a signaling graph, first download the ligand-transcription factor matrix. Then, extract the most highly weighted paths from the ligand to the target genes of interest. The number of regulators that are extracted can be adjusted using `top_n_regulators`. By setting `minmax_scaling = TRUE`, we perform min-max scaling to make the weights between the signaling and gene regulatory network more comparable. Additionally, it is possible to check which data sources support the inferred pathway by using the function `infer_supporting_datasources`. This would require separate signaling and gene regulatory networks as input (see Box 1 for code to download these networks).
 
 ```{r visualizations-XIV}
 
@@ -546,7 +549,7 @@ active_signaling_network <- get_ligand_signaling_path(ligands_all = ligands_oi,
 
 ```
 
-31. Convert the data frames into a DiagrammeR object, and render the signaling graph (Figure 3h).
+32. Convert the data frames into a DiagrammeR object, and render the signaling graph (Figure 3h).
 
 ```{r visualizations-XV}
 
@@ -563,7 +566,7 @@ DiagrammeR::render_graph(signaling_graph, layout = "tree")
 
 This section is only applicable for the sender-focused approach. Whereas Steps 12-14 only prioritize ligands based on ligand activity, this section incorporates relative expression and differential expression to further prioritize ligand-receptor pairs associated with specific sender and receiver cell types.
 
-32. Filter the ligand-receptor network to only contain expressed interactions. 
+33. Filter the ligand-receptor network to only contain expressed interactions. 
 
 ```{r prioritization - I}
 
@@ -572,7 +575,7 @@ lr_network_filtered <- filter(lr_network, from %in% potential_ligands_focused &
 
 ```
 
-33. Calculate the values required for prioritization, including DE between cell types, average expression, and DE between conditions. To use the wrapper function, follow option A. To calculate these values step-by-step, follow option B.
+34. Calculate the values required for prioritization, including DE between cell types, average expression, and DE between conditions. To use the wrapper function, follow option A. To calculate these values step-by-step, follow option B.
 
 
 A. **Using the wrapper function.**
@@ -673,7 +676,7 @@ processed_condition_markers <- process_table_to_ic(
 ```
 
 
-34. Generate the prioritization table containing rankings of cell-type-specific, ligand-receptor interactions. The "case_control" scenario sets all weights to one, while the "one_condition" scenario sets condition specificity to zero and the remaining weights to one.
+35. Generate the prioritization table containing rankings of cell-type-specific, ligand-receptor interactions. The "case_control" scenario sets all weights to one, while the "one_condition" scenario sets condition specificity to zero and the remaining weights to one.
 
 ```{r prioritization - VIII}
 
@@ -711,7 +714,7 @@ prioritizing_weights <- c("de_ligand" = 1,
 
 ```
 
-35. Create a mushroom plot depicting ligand expression on one semicircle, and receptor expression on the other (Figure 3i).
+36. Create a mushroom plot depicting ligand expression on one semicircle, and receptor expression on the other (Figure 3i).
 
 ```{r prioritization-X, fig.height=7, fig.width=8}
 prioritized_table$sender <- factor(prioritized_table$sender, levels = celltype_order)
@@ -728,7 +731,7 @@ make_mushroom_plot(prioritized_table,
 
 ```
 
-## Box 1. Constructing your own prior model
+## Box 2. Constructing your own prior model
 
 As the NicheNet prior model was constructed by integrating ligand-receptor, signaling, and gene regulatory databases, it is possible to replace each of these networks with external data sources. Constructing a customized prior model thus requires three directed networks, represented as data frames comprising three columns: `from`, `to`, and `source`. The `source` column contains the originating database of the interaction. As the reliability of each database can vary, we optimized the weights of each data source based on our validation procedure (as explained in Comparison with other methods). These optimized weights (`optimized_source_weights_df`), along with hyperparameters for model construction (`hyperparameter_list`), are provided in the NicheNet package. Key hyperparameters include correction factors for dominant hubs in the ligand-signaling and gene regulatory networks, as well as the central damping factor of the Personalized PageRank algorithm, the network propagation mechanism used to determine the ligand-target regulatory potential.
 
@@ -802,7 +805,7 @@ weighted_networks_liana <- construct_weighted_networks(
 
 ```
 
-## Box 2. Wrapper functions
+## Box 3. Wrapper functions
 
 To streamline the NicheNet analysis, we introduce three wrapper functions that automate Steps 5-23. The function `nichenet_seuratobj_aggregate` calculates the gene set of interest as the DE genes between two conditions within the receiver cell type. This function can be used to replicate the analysis in this paper as follows:
 
@@ -843,7 +846,7 @@ nichenet_seuratobj_cluster_de(
 
 The final wrapper function, `nichenet_seuratobj_aggregate_cluster_de`, combines the aforementioned wrappers. The gene set of interest is calculated as the DE genes between the affected receiver cell type under the condition of interest and the reference receiver cell type in the reference condition.
 
-## Box 3. Assessing the quality of predicted ligands
+## Box 4. Assessing the quality of predicted ligands
 
 We can assess the quality of prioritized ligands by constructing a random forest model built using the top 30 predicted ligands. The aim is to evaluate its ability to predict if a particular gene belongs to the target gene set. Using kfold cross-validation, 1/k of the target gene set is isolated as “unseen” data. The performance of the model can then be evaluated using classification metrics like AUPR and AUROC, or using Fisher’s exact test on the confusion matrix.  
 
@@ -888,7 +891,7 @@ top_predicted_genes <- reduce(top_predicted_genes, full_join, by = c("gene","tru
 top_predicted_genes
 ```
 
-## Box 4. Prioritization of ligand-receptor pairs for multiple receiver cell types
+## Box 5. Prioritization of ligand-receptor pairs for multiple receiver cell types
 
 ```{r}
 receiver_celltypes <- c("CD4 T", "CD8 T", "Treg")
