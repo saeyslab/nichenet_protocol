@@ -1,4 +1,51 @@
-#### BOX 1 ####
+#### BOX 2 ####
+receiver_celltypes <- c("CD4 T", "CD8 T", "Treg")
+nichenet_outputs <- lapply(receiver_celltypes, function(receiver_ct){
+  output <- nichenet_seuratobj_aggregate(receiver = receiver_ct,
+                                         seurat_obj = seuratObj,
+                                         condition_colname = "aggregate",
+                                         condition_oi = condition_oi,
+                                         condition_reference = condition_reference,
+                                         sender = sender_celltypes,
+                                         ligand_target_matrix = ligand_target_matrix,
+                                         lr_network = lr_network,
+                                         weighted_networks = weighted_networks,
+                                         expression_pct = 0.05)
+  # Add receiver information
+  output$ligand_activities$receiver <- receiver_ct
+  return(output)
+})
+
+# Generate tables used for prioritization
+info_tables <- lapply(nichenet_outputs, function(output) {
+  # Only use expressed LR pairs
+  lr_network_filtered <- filter(lr_network[, c("from", "to")],
+                                from %in% output$ligand_activities$test_ligand & to %in% output$background_expressed_genes)
+  generate_info_tables(seuratObj,
+                       celltype_colname = "celltype",
+                       senders_oi = sender_celltypes,
+                       receivers_oi = unique(output$ligand_activities$receiver),
+                       lr_network_filtered = lr_network_filtered,
+                       condition_colname = "aggregate",
+                       condition_oi = condition_oi,
+                       condition_reference = condition_reference,
+                       scenario = "case_control")
+})
+
+# Combine the tables
+info_tables_combined <- purrr::pmap(info_tables, bind_rows)
+ligand_activities_combined <- purrr::map_dfr(nichenet_outputs, "ligand_activities")
+# Perform prioritization
+prior_table_combined <- generate_prioritization_tables(
+  sender_receiver_info = distinct(info_tables_combined$sender_receiver_info),
+  sender_receiver_de = info_tables_combined$sender_receiver_de,
+  ligand_activities = ligand_activities_combined,
+  lr_condition_de = distinct(info_tables_combined$lr_condition_de),
+  scenario = "case_control")
+
+make_mushroom_plot(filter(prior_table_combined, receiver=="CD4 T"))
+
+#### BOX 3 ####
 # Download each part of the network
 zenodo_path <- "https://zenodo.org/record/7074291/files/"
 lr_network <- readRDS(url(paste0(zenodo_path, "lr_network_human_21122021.rds")))
@@ -59,18 +106,18 @@ weighted_networks <- construct_weighted_networks(
   gr_network = gr_network,
   source_weights_df = source_weights)
 
-#### BOX 2 ####
+#### BOX 4 ####
 nichenet_output <- nichenet_seuratobj_aggregate(
   seurat_obj = seuratObj,
   receiver = "CD8 T",
-  sender = c("CD4 T","Treg", "Mono", "NK", "B", "DC"),
+  sender = c("CD4 T", "Treg", "Mono", "NK", "B", "DC"),
   condition_colname = "aggregate",
   condition_oi = "LCMV", condition_reference = "SS",
   ligand_target_matrix = ligand_target_matrix,
   lr_network = lr_network,
   weighted_networks = weighted_networks)
 
-#### BOX 3 ####
+#### BOX 5 ####
 # Define cross-validation folds and number of iterations
 k <- 3; n <- 10
 
@@ -102,53 +149,3 @@ lapply(predictions_list, calculate_fraction_top_predicted_fisher,
 top_predicted_genes <- lapply(1:n, get_top_predicted_genes, predictions_list)
 top_predicted_genes <- reduce(top_predicted_genes, full_join,
                               by = c("gene","true_target"))
-
-
-#### BOX 4 ####
-receiver_celltypes <- c("CD4 T", "CD8 T", "Treg")
-
-# Run NicheNet for each receiver cell type
-nichenet_outputs <- lapply(receiver_celltypes, function(receiver_ct){ 
-  output <- nichenet_seuratobj_aggregate(receiver = receiver_ct,
-                                         seurat_obj = seuratObj,
-                                         condition_colname = "aggregate",
-                                         condition_oi = condition_oi,
-                                         condition_reference = condition_reference,
-                                         sender = sender_celltypes,
-                                         ligand_target_matrix = ligand_target_matrix,
-                                         lr_network = lr_network,
-                                         weighted_networks = weighted_networks,
-                                         expression_pct = 0.05) 
-  # Add receiver cell type in ligand activity table
-  output$ligand_activities$receiver <- receiver_ct 
-  return(output) 
-}) 
-
-# Calculate prioritization criteria for each receiver cell type
-info_tables <- lapply(nichenet_outputs, function(output) {
-  lr_network_filtered <-  filter(lr_network[, c("from", "to")],
-                                 from %in% output$ligand_activities$test_ligand & 
-                                 to %in% output$background_expressed_genes) 
-  
-  generate_info_tables(seuratObj, 
-                       celltype_colname = "celltype", 
-                       senders_oi = sender_celltypes, 
-                       receivers_oi = unique(output$ligand_activities$receiver), 
-                       lr_network_filtered = lr_network_filtered, 
-                       condition_colname = "aggregate", 
-                       condition_oi = condition_oi, 
-                       condition_reference = condition_reference, 
-                       scenario = "case_control") 
-})
-
-# Combine the tables
-info_tables_combined <- purrr::pmap(info_tables, bind_rows)
-ligand_activities_combined <- purrr::map_dfr(nichenet_outputs, "ligand_activities")
-
-# Calculate the prioritization table based on the combined tables
-prior_table_combined <- generate_prioritization_tables(
-  sender_receiver_info = distinct(info_tables_combined$sender_receiver_info), 
-  sender_receiver_de = info_tables_combined$sender_receiver_de,
-  ligand_activities = ligand_activities_combined, 
-  lr_condition_de = distinct(info_tables_combined$lr_condition_de),
-  scenario = "case_control") 

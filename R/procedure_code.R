@@ -1,3 +1,4 @@
+options(timeout = 3600) # increase time limit for downloading the data 
 seuratObj <- readRDS(url("https://zenodo.org/record/3531889/files/seuratObj.rds"))
 
 zenodo_path <- "https://zenodo.org/record/7074291/files/"
@@ -12,35 +13,7 @@ library(Seurat)
 
 ## Feature extraction ##
 seuratObj <- UpdateSeuratObject(seuratObj)
-seuratObj <- alias_to_symbol_seurat(seuratObj, "mouse")
-
-# For v5 objects
-if (as.numeric(substr(packageVersion("Seurat"), 1, 1)) >= 5 &
-    as.numeric(substr(seuratObj@version, 1, 1)) >= 5){
-  count_matrix <- GetAssayData(seuratObj, assay = "RNA", layer = "count")
-  data_matrix <- GetAssayData(seuratObj, assay = "RNA", layer = "data")
-  
-  print(paste("All genes from raw count and normalized data are the same:", all(rownames(count_matrix) == rownames(data_matrix))))
-  
-  # Convert gene names
-  new_names <- convert_alias_to_symbols(rownames(count_matrix), "mouse", verbose=FALSE)
-  
-  # Check for duplicated gene names
-  doubles <- names(which(table(new_names) > 1))
-  # Set the duplicated names back to their old names
-  genes_remove <- names(which(names(new_names[new_names %in% doubles]) != (new_names[new_names %in% doubles])))
-  new_names[genes_remove] <- genes_remove
-  
-  # Change rownames
-  rownames(count_matrix) <- new_names
-  rownames(data_matrix) <- new_names
-  
-  seuratObj <- CreateSeuratObject(count_matrix,
-                                  meta.data = seuratObj@meta.data)
-  seuratObj[["RNA"]]$data <- data_matrix
-  
-  rm(doubles, genes_remove, new_names)
-}
+seuratObj <- alias_to_symbol_seurat(seuratObj, "mouse") # This will return a warning for v5 objects
 
 Idents(seuratObj) <- seuratObj$celltype
 
@@ -55,7 +28,8 @@ potential_ligands <- lr_network[lr_network$to %in% expressed_receptors, ]
 potential_ligands <- unique(potential_ligands$from)
 
 sender_celltypes <- c("CD4 T","Treg", "Mono", "NK", "B", "DC")
-list_expressed_genes_sender <- lapply(sender_celltypes, function(celltype) {get_expressed_genes(celltype, seuratObj, pct = 0.05)})
+list_expressed_genes_sender <- lapply(sender_celltypes, function(celltype) 
+  {get_expressed_genes(celltype, seuratObj, pct = 0.05)})
 expressed_genes_sender <- unique(unlist(list_expressed_genes_sender))
 potential_ligands_focused <- intersect(potential_ligands, expressed_genes_sender)
 
@@ -92,15 +66,19 @@ active_ligand_target_links_df <- lapply(best_upstream_ligands, get_weighted_liga
                                         n = 200)
 active_ligand_target_links_df <- drop_na(bind_rows(active_ligand_target_links_df))
 
-ligand_receptor_links_df <- get_weighted_ligand_receptor_links(best_upstream_ligands, expressed_receptors,
-                                                               lr_network, weighted_networks$lr_sig)
+ligand_receptor_links_df <- get_weighted_ligand_receptor_links(
+  best_upstream_ligands = best_upstream_ligands,
+  expressed_receptors = expressed_receptors,
+  lr_network = lr_network,
+  weighted_networks_lr_sig = weighted_networks$lr_sig)
 
 ## Visualizations ##
 # Ligand activity heatmap
 ligand_aupr_matrix <- column_to_rownames(ligand_activities, "test_ligand")
 ligand_aupr_matrix <- ligand_aupr_matrix[rev(best_upstream_ligands), "aupr_corrected", drop=FALSE]
 vis_ligand_aupr <- as.matrix(ligand_aupr_matrix, ncol = 1)
-(make_heatmap_ggplot(vis_ligand_aupr, "Prioritized ligands", "Ligand activity",
+(make_heatmap_ggplot(vis_ligand_aupr,
+                     y_name = "Prioritized ligands", x_name = "Ligand activity",
                      legend_title = "AUPR", color = "darkorange") +
     theme(axis.text.x.top = element_blank()))
 
@@ -119,8 +97,8 @@ vis_ligand_target <- t(active_ligand_target_links[order_targets,order_ligands])
 # Ligand-receptor heatmap
 vis_ligand_receptor_network <- prepare_ligand_receptor_visualization(ligand_receptor_links_df,
                                                                      best_upstream_ligands, order_hclust = "receptors")
-(make_heatmap_ggplot(t(vis_ligand_receptor_network[, order_ligands]),
-                     "Prioritized ligands","Receptors",
+(make_heatmap_ggplot(t(vis_ligand_receptor_network),
+                     y_name = "Prioritized ligands", x_name = "Receptors",
                      color = "mediumvioletred",
                      legend_title = "Prior interaction potential"))
 
@@ -131,14 +109,14 @@ DE_table_top_ligands <- lapply(celltype_order[celltype_order %in% sender_celltyp
                                seurat_obj = seuratObj,
                                condition_colname = "aggregate",
                                condition_oi = condition_oi, condition_reference = condition_reference,
-                               min.pct = 0, logfc.threshold = 0,
-                               features = best_upstream_ligands, celltype_col = "celltype")
+                               celltype_col = "celltype", min.pct = 0, logfc.threshold = 0,
+                               features = best_upstream_ligands)
 DE_table_top_ligands <- reduce(DE_table_top_ligands, full_join)
 DE_table_top_ligands <- column_to_rownames(DE_table_top_ligands, "gene")
 
-vis_ligand_lfc <- as.matrix(DE_table_top_ligands[rev(best_upstream_ligands), , drop=FALSE])
-(make_threecolor_heatmap_ggplot(vis_ligand_lfc, "Prioritized ligands","LFC in Sender",
-                                low_color = "midnightblue",mid_color = "white", mid = median(vis_ligand_lfc), high_color = "red",
+vis_ligand_lfc <- as.matrix(DE_table_top_ligands[rev(best_upstream_ligands), ,drop=FALSE])
+(make_threecolor_heatmap_ggplot(vis_ligand_lfc, y_name = "Prioritized ligands", x_name = "LFC in Sender",
+                                low_color = "midnightblue", mid_color = "white", mid = median(vis_ligand_lfc), high_color = "red",
                                 legend_title = "LFC"))
 
 # Dot plot
@@ -177,8 +155,9 @@ make_circos_plot(vis_circos_receptor_obj, transparency = TRUE, link.visible = TR
 ligand_tf_matrix <- readRDS(url("https://zenodo.org/record/7074291/files/ligand_tf_matrix_nsga2r_final_mouse.rds"))
 ligands_oi <- "Ebi3"
 targets_oi <- c("Irf1", "Irf9")
-active_signaling_network <- get_ligand_signaling_path(ligand_tf_matrix = ligand_tf_matrix, ligands_all = ligands_oi,
-                                                      targets_all = targets_oi, weighted_networks = weighted_networks,
+active_signaling_network <- get_ligand_signaling_path(ligands_all = ligands_oi, targets_all = targets_oi,
+                                                      weighted_networks = weighted_networks,
+                                                      ligand_tf_matrix = ligand_tf_matrix, 
                                                       top_n_regulators = 4, minmax_scaling = TRUE)
 
 signaling_graph <- diagrammer_format_signaling_graph(signaling_graph_list = active_signaling_network,
@@ -211,19 +190,19 @@ DE_table <- FindAllMarkers(subset(seuratObj, subset = aggregate == "LCMV"),
                            min.pct = 0, logfc.threshold = 0, return.thresh = 1,
                            features = unique(unlist(lr_network_filtered)))
 
-expression_info <- get_exprs_avg(seuratObj, "celltype",
+expression_info <- get_exprs_avg(seuratObj, celltype_colname = "celltype",
                                  condition_colname = "aggregate", condition_oi = condition_oi,
                                  features = unique(unlist(lr_network_filtered)))
 
-condition_markers <- FindMarkers(object = seuratObj, ident.1 = condition_oi, ident.2 = condition_reference,
+condition_markers <- FindMarkers(seuratObj, ident.1 = condition_oi, ident.2 = condition_reference,
                                  group.by = "aggregate", min.pct = 0, logfc.threshold = 0,
                                  features = unique(unlist(lr_network_filtered)))
 condition_markers <- rownames_to_column(condition_markers, "gene")
 
-processed_DE_table <- process_table_to_ic(DE_table, table_type = "celltype_DE", lr_network_filtered,
+processed_DE_table <- process_table_to_ic(DE_table, table_type = "celltype_DE", lr_network = lr_network_filtered,
                                           senders_oi = sender_celltypes, receivers_oi = receiver)
-processed_expr_table <- process_table_to_ic(expression_info, table_type = "expression", lr_network_filtered)
-processed_condition_markers <- process_table_to_ic(condition_markers, table_type = "group_DE", lr_network_filtered)
+processed_expr_table <- process_table_to_ic(expression_info, table_type = "expression", lr_network = lr_network_filtered)
+processed_condition_markers <- process_table_to_ic(condition_markers, table_type = "group_DE", lr_network = lr_network_filtered)
 
 # Optional custom weights
 prioritizing_weights = c("de_ligand" = 1,
@@ -234,13 +213,13 @@ prioritizing_weights = c("de_ligand" = 1,
                          "ligand_condition_specificity" = 1,
                          "receptor_condition_specificity" = 1)
 
-prioritized_table <- generate_prioritization_tables(processed_expr_table,
-                                                    processed_DE_table,
-                                                    ligand_activities,
-                                                    processed_condition_markers,
+prioritized_table <- generate_prioritization_tables(sender_receiver_info = processed_expr_table,
+                                                    sender_receiver_de = processed_DE_table,
+                                                    ligand_activities = ligand_activities,
+                                                    lr_condition_de = processed_condition_markers,
                                                     scenario = "case_control")
-
 prioritized_table$sender <- factor(prioritized_table$sender, levels = celltype_order)
+
 make_mushroom_plot(prioritized_table, top_n = 30,
                    show_all_datapoints = TRUE, show_rankings = TRUE)
 
