@@ -1,6 +1,6 @@
 # NicheNet Protocol
 
-This repository contains the R code found in https://arxiv.org/abs/2404.16358.
+This repository contains the R code found in https://www.nature.com/articles/s41596-024-01121-9.
 
 ## Installation
 
@@ -44,6 +44,6 @@ For the most up-to-date changes on NicheNet, please refer to our main GitHub rep
 
 ## References
 
-Sang-aram, C., Browaeys, R., Seurinck, R., & Saeys, Y. (2024). Unraveling cell-cell communication with NicheNet by inferring active ligands from transcriptomics data. _arXiv preprint arXiv:2404.16358_. https://arxiv.org/abs/2404.16358.
+Sang-aram, C., Browaeys, R., Seurinck, R., & Saeys, Y. (2025). Unraveling cell-cell communication with NicheNet by inferring active ligands from transcriptomics data. _Nature Protocols_. https://doi.org/10.1038/s41596-024-01121-9.
 
 Browaeys, R., Saelens, W., & Saeys, Y. (2020). NicheNet: modeling intercellular communication by linking ligands to target genes. _Nature methods_, 17(2), 159-162. https://doi.org/10.1038/s41592-019-0667-5.
