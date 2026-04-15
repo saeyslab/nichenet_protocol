@@ -1529,7 +1529,7 @@ The final wrapper function, `nichenet_seuratobj_aggregate_cluster_de`, combines 
 
 
 ``` r
-nichenet_seuratobj_cluster_de(
+nichenet_seuratobj_aggregate_cluster_de(
   seurat_obj = seurat_obj,
   receiver_affected = differentiated_celltype,
   receiver_reference = progenitor_cell,
